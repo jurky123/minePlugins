@@ -1,6 +1,6 @@
 # minePlugins
 
-jzk 服务器的插件合集，用 git submodule 汇总管理。每个插件都是独立仓库，可以单独开发、单独发布。
+jzk 服务器的插件合集，用 git submodule 汇总管理。每个子项目都是独立仓库，可以单独开发、单独发布。
 
 ```bash
 git clone --recurse-submodules git@github.com:jurky123/minePlugins.git
@@ -40,11 +40,23 @@ git clone --recurse-submodules git@github.com:jurky123/minePlugins.git
 
 仓库：[jurky123/mineUI](https://github.com/jurky123/mineUI)
 
+### MineSkin —— 服务器皮肤定制包
+
+基于 SkinsRestorer 的皮肤定制与中文化配置：离线模式服务器的玩家可以浏览、搜索并一键更换皮肤。
+
+- 中文界面 + 换肤冷却 5 秒，挑皮肤更方便
+- 内置 90+ 皮肤：直接 `/skin <名字>` 使用，GUI 里也能看到；`/skinfind <关键词>` 搜索后点击即换
+- 正版玩家进服自动恢复自己账号的皮肤
+- `./deploy.sh` 一键部署到 Paper 服务器（配置 / 皮肤 / 搜索脚本）
+
+仓库：[jurky123/mineSkin](https://github.com/jurky123/mineSkin)
+
 ## 目录
 
 ```text
 minePlugins/
 ├── mineAgent/   # AI 聊天助手（Paper 插件 + 后端服务）
+├── mineSkin/    # 皮肤定制包（SkinsRestorer 配置 + 内置皮肤 + 搜索）
 ├── mineUNO/     # UNO 卡牌游戏（Paper 插件 + 资源包托管）
 └── mineUI/      # 自定义 UI 框架（Paper 插件 + Fabric 客户端模组）
 ```

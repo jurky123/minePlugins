@@ -7,3 +7,6 @@
 [submodule "mineUI"]
 	path = mineUI
 	url = git@github.com:jurky123/mineUI.git
+[submodule "mineSkin"]
+	path = mineSkin
+	url = git@github.com:jurky123/mineSkin.git
