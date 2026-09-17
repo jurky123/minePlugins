@@ -42,12 +42,13 @@ git clone --recurse-submodules git@github.com:jurky123/minePlugins.git
 
 ### MineSkin —— 服务器皮肤定制包
 
-基于 SkinsRestorer 的皮肤定制与中文化配置：离线模式服务器的玩家可以浏览、搜索并一键更换皮肤。
+换肤交给 SkinsRestorer，MineSkin 插件提供中文皮肤目录与 MineUI 3D 预览界面。
 
-- 中文界面 + 换肤冷却 5 秒，挑皮肤更方便
-- 内置 90+ 皮肤：直接 `/skin <名字>` 使用，GUI 里也能看到；`/skinfind <关键词>` 搜索后点击即换
+- `/skinui` 打开皮肤浏览器：分页列表 + 可拖动 3D 预览，点一下立即换肤（mod 客户端）
+- 原版客户端自动退回聊天列表（点击 `[换]`），也可用 SkinsRestorer 的 `/skins` GUI
+- 中文界面 + 换肤冷却 5 秒；内置 90+ 皮肤：`/skin <名字>` 直接使用
 - 正版玩家进服自动恢复自己账号的皮肤
-- `./deploy.sh` 一键部署到 Paper 服务器（配置 / 皮肤 / 搜索脚本）
+- `./deploy.sh` 一键构建并部署到 Paper 服务器（MineUI + MineSkin / 配置 / 皮肤）
 
 仓库：[jurky123/mineSkin](https://github.com/jurky123/mineSkin)
 

@@ -1,0 +1,514 @@
+# minePlugins 架构级 Code Review 与重构分析
+
+审查日期：2026-09-17。第一阶段：只审查，没有修改业务代码、创建 PR 或提交改动。
+
+**结论：主要模块边界值得保留。最值得投入的是修正权限与请求身份、GUI 会话协议、UNO 状态机及资源生命周期，然后用现有 API 接入一个真实业务页面。当前没有必要建设统一 platform、消息总线或大型 GUI framework。**
+
+本报告按照用户指定的 P0–P4 分类：P0 包含 Bug、数据错误、安全问题，并不表示每个 P0 都是紧急安全漏洞。每项另说明触发条件和影响；实际执行顺序见第 13、14 节。
+
+## 1. Repository Overview
+
+### 审查基准与覆盖
+
+以聚合仓库锁定的子模块提交为准，不混用各子仓库最新 main：
+
+| 仓库 | 审查提交 | 作用 |
+|---|---|---|
+| minePlugins | `96236e81e13df9595aec6987397ddb82cb2d9ba5` | submodule 聚合与说明 |
+| mineUI | `94a15a4b42978b3ab67c14014e32ea516c4e1eaf` | GUI 协议、Paper 服务端、Fabric 客户端 |
+| mineAgent | `812d5a69673947c80924dd79bbaba8218166a628` | Go agent 后端与 Paper 接入 |
+| mineUNO | `8b6950afa876aa60f30f0cb28105560f20f0c1f6` | UNO、资源包生成、PackHost |
+
+已取得三个子模块完整目录树和 165 个文本文件，检查 README、构建与插件配置、全部主要入口及核心执行链，并针对网络、审批、状态机、GUI、定时任务和资源释放逐项追踪。未把设计文档中的规划当作已实现功能。未发现 AGENTS.md。
+
+| 子仓库 | Java/Go 文件数（含测试） | 测试文件数 | 检查重点 |
+|---|---:|---:|---|
+| mineUI | 74 | 15 | 信封、握手、session/revision、状态与布局、输入、生命周期 |
+| mineAgent | 35 | 10 | 请求、共享历史、审批、RPC、WebSocket、SQLite、Paper 权限 |
+| mineUNO | 14 | 0 | 规则、房间、菜单、实体手牌、座位、资源包、退出重连 |
+
+**验证边界：这是源码审查，不是已经通过运行测试的验收。** 当前环境只有 Java 17 JRE，没有 Java 25 JDK、Go、Maven 或系统 Gradle；没有运行项目构建、JUnit、Go 测试、Paper 服务器或 Fabric 客户端。没有性能实测，因此不提供虚构的 TPS、内存或加速百分比。文件位置与调用路径可确认的缺陷标为“静态确认”；引擎事件时序、视觉表现和负载影响保留为运行验证项。
+
+### 实际模块
+
+| 模块 | 职责与核心类 | 对外接口 | 依赖 / 被依赖 | 重叠判断 |
+|---|---|---|---|---|
+| mineui-protocol | `Envelope`、`JsonCodec`、消息 records、`JsonPatch`、`RevisionGuard` | 序列化与协议模型 | Gson；被 paper/client 使用并嵌入 jar | 合理共享，不能并入 Paper |
+| mineui-paper | `MineUiPlugin`、`SessionManager`、`UiSessionManager`、`UiSession`、`Transport` | `uiSessions().open()`、`state/on/snapshot/close` | Paper、protocol；尚无外部业务消费者 | 连接会话与界面会话生命周期不同，不宜因名称相似合并 |
+| mineui-client | `MineUiClient`、`ProtocolClient`、`UiScreen`、节点树、renderer | 服务端消息；客户端 JSON 页面 | Fabric、Minecraft、protocol | 布局与渲染分离有测试价值 |
+| mineAgent Go executable | `main`、`Agent`、`Hub/Session`、`Approvals`、`Gateway`、`Store`、WS Server | `/ws`、`/healthz` | Eino、OpenAI 兼容接口、SQLite；Paper 连接它 | 独立进程隔离模型等待，有价值 |
+| mineAgent/paper-plugin | `MineAgentPlugin`、`BackendClient`、`ToolExecutor`、`ApprovalHandler` | 聊天、命令、工具结果与审批协议 | Paper、Gson、JDK WebSocket | 与 MineUI 无直接依赖 |
+| mineUNO/mineuno | `MineUnoPlugin`、`Game`、`MatchManager`、`Menus`、`Table`、`Hud` | `/uno`、背包菜单、3D 交互 | Paper；资源外观依赖配套资源包 | 业务与表现边界不够严，但模块数量不多 |
+| mineUNO/packhost | `PackHostPlugin` | `/packhost`、HTTP 资源包、进服下发 | Paper、JDK HTTP Server | 可独立复用，保留独立插件 |
+| mineUNO/pack | `gen_pack.py` | 生成资源包 zip | Python/Pillow | 构建工具，不是运行时插件或独立服务 |
+
+根目录没有统一 Gradle/Maven 构建。MineUI 是三个 Gradle subproject；MineAgent 是一个 Go module 加一个独立 Gradle 工程；MineUNO 是两个独立 Maven 工程加脚本。不要把 Git 子仓库、构建模块、Go package、运行时插件混为一谈。
+
+## 2. Architecture Map
+
+```mermaid
+flowchart TD
+    Root["minePlugins：锁定子仓库提交"] --> UI["mineUI"]
+    Root --> UNO["mineUNO"]
+    Root --> Agent["mineAgent"]
+    UI --> UP["mineui-paper"]
+    UI --> UC["mineui-client"]
+    UP --> Protocol["mineui-protocol"]
+    UC --> Protocol
+    UP <-->|"mineui:main payload"| UC
+    UNO --> Game["mineuno：规则、房间、3D、菜单"]
+    UNO --> Pack["packhost：HTTP 资源包"]
+    Agent --> AP["Paper 接入"]
+    Agent --> Go["Go agent 后端"]
+    AP <-->|"WebSocket JSON"| Go
+    Go --> DB["SQLite"]
+    Go --> Model["模型接口"]
+```
+
+上图根节点箭头是目录归属，模块间箭头才表示编译或运行时通信。PackHost 与 MineUNO **没有 Java API 调用依赖**，通过下发资源包支持外观。三个顶层业务仓库之间未发现直接源码调用、循环编译依赖或 `depend/softdepend` 声明。
+
+MineUNO 内部有更值得关注的反向依赖：
+
+```mermaid
+flowchart TD
+    Command["UnoCommand / Menus / UnoListener"] --> Match["MatchManager"]
+    Match --> Rules["Game"]
+    Rules --> Card["Card"]
+    Card --> Singleton["MineUnoPlugin.instance：配置与物品渲染"]
+    Rules --> Events["Game.Events 回调"]
+    Events --> Match
+    Match --> Table["Table / Hud / Menus"]
+    Table -->|"发牌动画完成后 beginPlay"| Rules
+```
+
+`Game` 没有直接 import Bukkit，但 `Card` 依赖 Bukkit、Paper DataComponent 和插件单例，所以规则层并不真正独立。`Table.deal()` 还负责调用 `game.beginPlay()`，形成表现层推进规则的反向控制。回调本身不等于错误；问题是回调发生在状态变更中途，且 UI/动画也能控制业务进度。依据：[Card.java:60](https://github.com/jurky123/mineUNO/blob/8b6950afa876aa60f30f0cb28105560f20f0c1f6/mineuno/src/main/java/com/mineuno/Card.java#L60)、[Table.java:598](https://github.com/jurky123/mineUNO/blob/8b6950afa876aa60f30f0cb28105560f20f0c1f6/mineuno/src/main/java/com/mineuno/Table.java#L598)。
+
+## 3. Major Problems
+
+真正重要的问题可归为五组：
+
+1. **权限与身份不是完整闭环。** MineAgent 权限预检失败后仍发起审批，give/teleport 执行时不复查请求者；队列请求也没有绑定历史截止点。
+2. **GUI 的 session 与 revision 契约尚未闭合。** ACTION 未验证 session；主动 state 更新不递增 revision；断线和停用清理不完整。
+3. **UNO 状态转换依赖隐式推断。** 两人规则、超时、弃权、发牌动画之间缺少可测试的明确转换边界。
+4. **表现层已经影响功能完整性。** 超过 16 张的手牌不能选择；多桌使用同一坐标；菜单把点击时的当前列表当作用户原先看到的列表。
+5. **资源生命周期缺陷。** PackHost 合并目录错误、重建非原子、executor 未关闭；Table 累积已完成任务和已删除实体引用。
+
+这些问题不修，增加新页面或插件会放大错误传播范围。增加 Manager、Repository、EventBus 不能自动解决它们。
+
+## 4. Bugs
+
+以下编号供后续修复和测试引用。每项均列出现状、原因、最小建议与收益；未运行的复现步骤只是验收用例，不冒充测试结果。
+
+### B01 — P0：give/teleport 的权限预检失败时继续审批，执行时不复查【静态确认，高影响】
+
+- **Problem / Current：** Go 的 `InvokableRun` 只在 `err == nil && !allowed` 时拒绝；RPC 超时或解码错误会继续创建审批。恢复执行直接发工具调用。Paper `teleport(args)`、`give(args)` 不接收 requester，也不检查其权限。
+- **Why：** 权限查询失败时，系统把“不知道是否允许”当作可以继续。即使预检成功，管理员批准前撤销权限也不会阻止这两个操作。仍需管理员批准，不能夸大为任意玩家无审批直接提权。
+- **Suggested change：** 预检错误即拒绝；Paper 在实际修改前按 requester UUID 查询在线身份并 `hasPermission`，不要用额外 `isOp() || ...` 绕过显式否定权限。保持命令仍以玩家身份执行。
+- **Benefit / 不修后果：** 避免失效权限与过期授权产生实际世界修改；维持 README 所承诺的“以请求者权限为准”。
+- **Complexity：LOW–MEDIUM；Worth doing：YES。** 验收：预检超时、先批准后撤权/离线、显式 deny 节点均不得产生副作用。
+- **依据：** [privileged.go:147](https://github.com/jurky123/mineAgent/blob/812d5a69673947c80924dd79bbaba8218166a628/internal/tools/privileged.go#L147)、[ToolExecutor.java:149](https://github.com/jurky123/mineAgent/blob/812d5a69673947c80924dd79bbaba8218166a628/paper-plugin/src/main/java/com/mineagent/paper/ToolExecutor.java#L149)、[ToolExecutor.java:206](https://github.com/jurky123/mineAgent/blob/812d5a69673947c80924dd79bbaba8218166a628/paper-plugin/src/main/java/com/mineagent/paper/ToolExecutor.java#L206)。
+
+### B02 — P0：排队请求没有绑定消息及历史边界【静态确认；具体模型行为需验证】
+
+- **Current：** `Request` 只有 Session、Player、Query。`respond()` 使用当前共享 `history()`，`Query` 只进入日志；主入口已经先把所有聊天写入数据库。`MessagesAfter(..., 200)` 又取截止摘要之后最早的 200 条。
+- **Why：** 请求 A 排队时到达的 B 消息可能成为 A 执行时最后一条指令，但工具 requester 仍是 A；大量闲聊还可能把本次提问排除在 200 条之外。不能只靠提示词解决身份错配。
+- **Suggested change：** Ingest 返回 message ID 后把 `requestID/requesterUUID/triggerMessageID/query` 固定到 Request；查询历史限定到触发消息，保证触发消息总被纳入，并在模型输入中明确本次请求者和问题。不要把后来的问题解释成 A 的授权。
+- **Benefit：** 多人问答不串题，工具执行身份与用户意图可追踪；否则并发越多，错误归属越难查。
+- **Complexity：MEDIUM；Worth doing：YES。** 验收：A/B 请求交错、队列积压、触发前超过 200 条闲聊；断言发往模型的消息和工具 requester。
+- **依据：** [main.go:83](https://github.com/jurky123/mineAgent/blob/812d5a69673947c80924dd79bbaba8218166a628/cmd/mineagent/main.go#L83)、[agent.go:179](https://github.com/jurky123/mineAgent/blob/812d5a69673947c80924dd79bbaba8218166a628/internal/agent/agent.go#L179)、[agent.go:327](https://github.com/jurky123/mineAgent/blob/812d5a69673947c80924dd79bbaba8218166a628/internal/agent/agent.go#L327)、[storage.go:181](https://github.com/jurky123/mineAgent/blob/812d5a69673947c80924dd79bbaba8218166a628/internal/storage/storage.go#L181)。
+
+### B03 — P0：WebSocket 的同步锁不保证异步发送完成【静态确认的 API 用法错误】
+
+- **Current：** `BackendClient.send()` 在锁内调用 `sendText()` 后立即返回 true，忽略返回的 Future；ping/close 也忽略异步失败。
+- **Why：** 锁只串行化发起动作，前一次发送仍可能 pending。JDK 明确允许此时返回异常完成的 Future；try/catch 捕不到这种失败。聊天、审批结果、工具结果可能被静默丢弃。
+- **Suggested change：** 使用有界发送队列或 Future 链，上一发送完成再发下一条；观察异常并断线恢复。区分“已入队”和“发送成功”，绝不在 Paper 主线程 `.join()` 等网络。
+- **Benefit：** 审批与工具结果不再“界面说已发送，后端实际没收到”。
+- **Complexity：MEDIUM；Worth doing：YES。** 验收：慢接收端、并发聊天和工具回包、发送 Future 异常。
+- **依据：** [BackendClient.java:116](https://github.com/jurky123/mineAgent/blob/812d5a69673947c80924dd79bbaba8218166a628/paper-plugin/src/main/java/com/mineagent/paper/BackendClient.java#L116)；[JDK 25 WebSocket.sendText 官方文档](https://docs.oracle.com/en/java/javase/25/docs/api/java.net.http/java/net/http/WebSocket.html#sendText(java.lang.CharSequence,boolean))。
+
+### B04 — P0：审批结果可丢失，重启后等待状态无法恢复【静态确认】
+
+- **Current：** `Approvals.finish()` 先删除 pending、停止 timer，再向容量 16 的 outcomes 非阻塞发送；队列满就丢弃。Agent 仅在串行 respond/resume 之间消费 outcomes。checkpoint 持久化，但 `Agent.pending` 与审批表仅在内存。
+- **Why：** 长模型调用期间多个审批完成可超过队列容量；结果丢失后没有 timer 再收尾，Agent.pending 与 checkpoint 可能残留。重启后数据库 checkpoint 无法单独恢复审批关联。
+- **Suggested change：** 首先保证结果不丢：持久化终态并投递 ID，或保留未交付结果重试；给 pending 总量设上限。重启 MVP 可明确过期旧审批并清理孤立 checkpoint，不必第一步实现完整自动恢复。新连接只接受当前可信 Minecraft 连接的 tool/approval result。
+- **Benefit：** 批准、拒绝、超时都有确定结果；不会积累永远等待的执行。
+- **Complexity：MEDIUM；Worth doing：YES。** 验收：消费者暂停、17 个以上结果、审批中重启、重复决定与重复 RPC。
+- **依据：** [approval.go:121](https://github.com/jurky123/mineAgent/blob/812d5a69673947c80924dd79bbaba8218166a628/internal/tools/approval.go#L121)、[agent.go:152](https://github.com/jurky123/mineAgent/blob/812d5a69673947c80924dd79bbaba8218166a628/internal/agent/agent.go#L152)、[agent.go:245](https://github.com/jurky123/mineAgent/blob/812d5a69673947c80924dd79bbaba8218166a628/internal/agent/agent.go#L245)。
+
+### B05 — P0：MineUI ACTION 未验证 session ID【静态确认】
+
+- **Current：** `UiSessionManager.handleAction()` 按玩家取当前 session，只把 envelope.revision 与 action 传进去，忽略 envelope.session。
+- **Why：** A 页面关闭、B 页面打开后，A 的延迟包只要动作名和 revision 恰好匹配，就会执行 B 的 handler。当前演示页面影响有限；未来商店和审批页影响更大。不是跨玩家访问漏洞。
+- **Suggested change：** 解码和执行前校验玩家、活动 session ID、连接有效性；客户端处理 PATCH/SNAPSHOT/CLOSE 同样校验 session。未知动作先拒绝，再决定是否推进动作序号。
+- **Benefit：** 页面切换与重复包不能误操作新页面。
+- **Complexity：LOW；Worth doing：YES。** 验收：新旧页面均 revision=0 且有相同动作 ID，旧 ACTION 不得触发新 handler。
+- **依据：** [UiSessionManager.java:47](https://github.com/jurky123/mineUI/blob/94a15a4b42978b3ab67c14014e32ea516c4e1eaf/mineui-paper/src/main/java/com/mineui/paper/ui/UiSessionManager.java#L47)、[ProtocolClient.java:115](https://github.com/jurky123/mineUI/blob/94a15a4b42978b3ab67c14014e32ea516c4e1eaf/mineui-client/src/client/java/com/mineui/client/net/ProtocolClient.java#L115)。
+
+### B06 — P0：状态更新和 revision 耦合错误【静态确认】
+
+- **Current：** 只有 `RevisionGuard.submit()` 自增 revision；`state()` 主动推送 PATCH 不增版本。`UiScreen` 仅在 revision 变化时重新 measure/layout。一次 action 中多次 state 会发送多个同 revision 的 PATCH。
+- **Why：** OPEN 后先初始化 Screen，再收到 revision=0 的首次快照时，也可能没有再次布局。定时任务或异步结果更改可见性时，客户端状态已变，但 `visibleNow`、尺寸和布局仍旧；多个同版本补丁跨帧到达也可能只布局一次。
+- **Suggested change：** 最小修复是客户端另设每次成功应用状态后的 dirty/generation 标记驱动布局。随后把服务端状态更新做成原子批次，一批一个 state revision；明确 action 去重与状态版本的关系，避免把二者混为一计数器。不要简单将客户端改成拒绝所有相同 revision：当前协议允许同 revision 多包。
+- **Benefit：** 动态内容与异步数据可靠，批量更新减少发包和重复布局。
+- **Complexity：MEDIUM；Worth doing：YES。** 验收：不点击按钮而主动改变 visible；同 action 两字段跨帧更新；旧补丁/失败补丁之后 resync。
+- **依据：** [UiSession.java:68](https://github.com/jurky123/mineUI/blob/94a15a4b42978b3ab67c14014e32ea516c4e1eaf/mineui-paper/src/main/java/com/mineui/paper/ui/UiSession.java#L68)、[RevisionGuard.java:42](https://github.com/jurky123/mineUI/blob/94a15a4b42978b3ab67c14014e32ea516c4e1eaf/mineui-protocol/src/main/java/com/mineui/protocol/session/RevisionGuard.java#L42)、[UiScreen.java:103](https://github.com/jurky123/mineUI/blob/94a15a4b42978b3ab67c14014e32ea516c4e1eaf/mineui-client/src/client/java/com/mineui/client/ui/UiScreen.java#L103)。
+
+### B07 — P0：网络载荷及客户端页面路径缺少边界校验【静态确认】
+
+- **Current：** `JsonCodec.decode` 可返回 null，后续 HELLO/ACTION 等直接解引用；仅捕获 ProtocolException。客户端 `devRoot.resolve(app).resolve(view + ".json")` 直接使用 OPEN 字段，未限制绝对路径/`..`。ACTION 限流发生在每包已经排入 Bukkit scheduler 之后。
+- **Why：** 合法 JSON `null` 可越过语法解析造成异常；恶意服务端可让客户端尝试读取开发目录之外的 JSON；大量 ACTION 仍会先产生主线程任务。路径问题不能据此宣称任意文件已经外传或任意文件可写。
+- **Suggested change：** 在协议入口统一拒绝 null、必填字段缺失和过长值；app/view 限定标识符并验证规范化路径属于允许目录，开发覆盖默认关闭；入队前做每连接包数/字节数限流。handler 异常应隔离并恢复/关闭当前会话。
+- **Benefit：** 将网络错误约束在连接/会话内，降低客户端文件访问与主线程任务洪泛风险。
+- **Complexity：LOW–MEDIUM；Worth doing：YES。** 验收：null、缺字段、路径穿越、超长数据、突发 ACTION。
+- **依据：** [JsonCodec.java:31](https://github.com/jurky123/mineUI/blob/94a15a4b42978b3ab67c14014e32ea516c4e1eaf/mineui-protocol/src/main/java/com/mineui/protocol/JsonCodec.java#L31)、[UiDefinitionLoader.java:47](https://github.com/jurky123/mineUI/blob/94a15a4b42978b3ab67c14014e32ea516c4e1eaf/mineui-client/src/main/java/com/mineui/ui/spec/UiDefinitionLoader.java#L47)、[MineUiPlugin.java:83](https://github.com/jurky123/mineUI/blob/94a15a4b42978b3ab67c14014e32ea516c4e1eaf/mineui-paper/src/main/java/com/mineui/paper/MineUiPlugin.java#L83)。
+
+### B08 — P0：MineUI 关闭、断线与重开状态不完整【静态确认】
+
+- **Current：** 服务端 `UiSessionManager.clear()` 只清 map，没有逐个作废 UiSession；客户端只注册 JOIN，没有 DISCONNECT 清理。`UiDefinitionLoader` 缓存的是可变 UiNode 树，重开复用滚动与动画状态。首次打开还把内置页面自动复制为持久 dev override。
+- **Why：** 外部持有的 session 仍认为自己可用；断线后 static state/current 可能残留；重新打开继承旧滚动/变换。自动生成的旧开发文件还会长期覆盖新版 mod 页面。
+- **Suggested change：** close/discard 都释放 handlers 与业务订阅；停用逐个关闭/作废，客户端断线清 state/current/protocol。缓存定义数据，每次开页创建新 runtime tree；开发模板改为显式开发操作。所有关闭入口幂等。
+- **Benefit：** 页面与插件生命周期一致，后续外部插件引用不会变成技术债。
+- **Complexity：MEDIUM；Worth doing：YES。** 验收：插件停用、切服、重连、外部替换 Screen、重复打开及升级页面资源。
+- **依据：** [UiSessionManager.java:91](https://github.com/jurky123/mineUI/blob/94a15a4b42978b3ab67c14014e32ea516c4e1eaf/mineui-paper/src/main/java/com/mineui/paper/ui/UiSessionManager.java#L91)、[MineUiClient.java:28](https://github.com/jurky123/mineUI/blob/94a15a4b42978b3ab67c14014e32ea516c4e1eaf/mineui-client/src/client/java/com/mineui/client/MineUiClient.java#L28)、[UiDefinitionLoader.java:33](https://github.com/jurky123/mineUI/blob/94a15a4b42978b3ab67c14014e32ea516c4e1eaf/mineui-client/src/main/java/com/mineui/ui/spec/UiDefinitionLoader.java#L33)、[MineUiScreens.java:39](https://github.com/jurky123/mineUI/blob/94a15a4b42978b3ab67c14014e32ea516c4e1eaf/mineui-client/src/client/java/com/mineui/client/ui/MineUiScreens.java#L39)。
+
+### B09 — P0：两人反转与回合计时错误【静态确认】
+
+- **Current：** REVERSE 始终反向后 `advance(1)`，两人局轮到对手，与项目规则“自己再出一张”不符。计时器依赖 `phase|current|round|drawnId` 的字符串变化，`advance()` 却先清 deadline。
+- **Why：** 两人局 SKIP/+2 后仍是同一玩家且 phase 不变，签名可能完全相同，deadline 清零后不会重设。牌堆耗尽时 `drawCard()` 返回 false，超时路径也可能清零后不再推进。
+- **Suggested change：** Game 显式产生回合/决策开始事件或 turnSequence；MatchManager 直接在这些边界设置 deadline。为两人反转写明确分支；定义无牌可摸的推进规则。
+- **Benefit：** 规则与计时确定，不再靠字符串猜状态是否前进。
+- **Complexity：MEDIUM；Worth doing：YES。** 验收：两人反转/跳过/+2、多人反向、摸牌后 pass、空牌堆超时。
+- **依据：** [Game.java:292](https://github.com/jurky123/mineUNO/blob/8b6950afa876aa60f30f0cb28105560f20f0c1f6/mineuno/src/main/java/com/mineuno/Game.java#L292)、[Game.java:457](https://github.com/jurky123/mineUNO/blob/8b6950afa876aa60f30f0cb28105560f20f0c1f6/mineuno/src/main/java/com/mineuno/Game.java#L457)、[MatchManager.java:461](https://github.com/jurky123/mineUNO/blob/8b6950afa876aa60f30f0cb28105560f20f0c1f6/mineuno/src/main/java/com/mineuno/MatchManager.java#L461)。
+
+### B10 — P0：弃权与发牌中的状态转换不安全【静态确认；部分时序需运行验证】
+
+- **Current：** POST_DRAW 当前玩家退出后 `drawn` 与 phase 未清理；CHALLENGE 的 challenger 退出时 `give(cur,4)`，此时 cur 通常仍是出 +4 的人。逆序当前玩家退出时索引也没有按方向选择继任者。`Table.deal()` 延迟回调无阶段检查直接 `beginPlay()`。
+- **Why：** 下一人可能被限制只能打离开者的 drawn card；罚牌对象错误；DEALING 中人数降到一人结束后，未取消的发牌回调可能把 ENDED 改回 PLAYING。
+- **Suggested change：** 按阶段处理 forfeit，先保存原 turn/方向/挑战双方，再建立合法后继状态。发牌完成由 MatchManager 持有生命周期令牌并校验 game/round/phase；不能仅检查 BukkitTask 是否存在。
+- **Benefit：** 断线、主动退出不再破坏整局状态。
+- **Complexity：MEDIUM；Worth doing：YES。** 验收：各阶段分别退出当前人、旁观回合玩家、challenger/offender，含 dir=-1 和发牌未完成场景。
+- **依据：** [Game.java:483](https://github.com/jurky123/mineUNO/blob/8b6950afa876aa60f30f0cb28105560f20f0c1f6/mineuno/src/main/java/com/mineuno/Game.java#L483)、[Table.java:621](https://github.com/jurky123/mineUNO/blob/8b6950afa876aa60f30f0cb28105560f20f0c1f6/mineuno/src/main/java/com/mineuno/Table.java#L621)。
+
+### B11 — P0：手牌显示上限变成了玩法上限【静态确认】
+
+- **Current：** 默认 `handMax=16`，只为前 16 张排序后手牌创建显示/命中；没有手牌翻页，也没有按 cardId 出牌命令。panel 只有摸牌、pass 等操作。
+- **Why：** 合法对局中超过 16 张时，后面的牌无法选中，可能是唯一可打出的牌。把 max 提高一点只推迟问题。
+- **Suggested change：** 保留有限实体池，加手牌分页/选择窗口，确保每张牌可达；MineUI 动态列表成熟后再使用它。牌 ID 绑定，不能只记排序索引。
+- **Benefit：** 保持原版玩家完整可玩，同时控制实体数量。
+- **Complexity：MEDIUM；Worth doing：YES。** 验收：17、30 张手牌，唯一合法牌在最后一页；翻页期间手牌变化。
+- **依据：** [Table.java:104](https://github.com/jurky123/mineUNO/blob/8b6950afa876aa60f30f0cb28105560f20f0c1f6/mineuno/src/main/java/com/mineuno/Table.java#L104)、[Table.java:323](https://github.com/jurky123/mineUNO/blob/8b6950afa876aa60f30f0cb28105560f20f0c1f6/mineuno/src/main/java/com/mineuno/Table.java#L323)、[Table.java:360](https://github.com/jurky123/mineUNO/blob/8b6950afa876aa60f30f0cb28105560f20f0c1f6/mineuno/src/main/java/com/mineuno/Table.java#L360)、[Menus.java:262](https://github.com/jurky123/mineUNO/blob/8b6950afa876aa60f30f0cb28105560f20f0c1f6/mineuno/src/main/java/com/mineuno/Menus.java#L262)。
+
+### B12 — P0：菜单快照、关闭和事件时序错误【静态确认 / 引擎表现需验证】
+
+- **Current：** 大厅显示时按 rooms 排序填槽，点击时重建“当前 rooms 列表”再按索引加入；panel 的 slot 26 关闭后继续 `openPanel()`；InventoryClickEvent 同步调用多个 open/close。
+- **Why：** 其他房间删除后，玩家可加入不是所点图标的房间；关闭按钮立即重开。事件处理中直接换窗口违反 Paper 对该事件的使用约束，取消事件不代表可以安全换窗口。
+- **Suggested change：** 每个 Inventory 保存 slot→game UUID/action 的展示快照，点击后按 ID 重新验证存在性；关闭立即 return；把窗口切换延至下一 tick，并验证玩家在线、旧窗口与会话仍匹配。
+- **Benefit：** 避免错房间、关不掉、旧任务覆盖新窗口；为 GUI 复用建立正确 action 边界。
+- **Complexity：LOW–MEDIUM；Worth doing：YES。** 验收：开大厅后删除前一个房间；点关闭；快速连点/切页。
+- **依据：** [Menus.java:336](https://github.com/jurky123/mineUNO/blob/8b6950afa876aa60f30f0cb28105560f20f0c1f6/mineuno/src/main/java/com/mineuno/Menus.java#L336)、[Menus.java:373](https://github.com/jurky123/mineUNO/blob/8b6950afa876aa60f30f0cb28105560f20f0c1f6/mineuno/src/main/java/com/mineuno/Menus.java#L373)、[UnoListener.java:32](https://github.com/jurky123/mineUNO/blob/8b6950afa876aa60f30f0cb28105560f20f0c1f6/mineuno/src/main/java/com/mineuno/UnoListener.java#L32)；[Paper InventoryClickEvent 源码约束](https://github.com/PaperMC/Paper/blob/main/paper-api/src/main/java/org/bukkit/event/inventory/InventoryClickEvent.java)。
+
+### B13 — P0：多桌、座位与玩家属性所有权不明确【静态确认】
+
+- **Current：** 每个 Table 都从同一个 `plugin.arena().center()` 构造，多桌没有位置分配。`keepSeat()` 把坐骑坐标与未加偏移的 stand 比较：默认高度差 0.9 大于允许距离 0.6，因此反复进入纠正分支。`resetMovement()` 在全员启动、join、quit 上按阈值直接改玩家基础属性。
+- **Why：** 同时开桌会重叠；座位产生不必要 teleport 尝试；其他插件设置的低移速/跳跃力或长交互距离会被 UNO 改掉，即使玩家没玩 UNO。
+- **Suggested change：** 为正在运行的桌子分配独立 arena slot；比较同一预期坐骑坐标；属性修改使用插件自己的 modifier/所有权标记，移除仅撤销自身改动。退出先解除 UNO 参与/座位约束，再处理下马和回传。
+- **Benefit：** 多桌可用，与其他插件共存，不再“修复”别人的属性。
+- **Complexity：MEDIUM；Worth doing：YES。** 验收：两桌同时开始、非 UNO 玩家自定义属性、座位静止时无重复纠正、退出与换世界。
+- **依据：** [Table.java:88](https://github.com/jurky123/mineUNO/blob/8b6950afa876aa60f30f0cb28105560f20f0c1f6/mineuno/src/main/java/com/mineuno/Table.java#L88)、[Table.java:209](https://github.com/jurky123/mineUNO/blob/8b6950afa876aa60f30f0cb28105560f20f0c1f6/mineuno/src/main/java/com/mineuno/Table.java#L209)、[MatchManager.java:420](https://github.com/jurky123/mineUNO/blob/8b6950afa876aa60f30f0cb28105560f20f0c1f6/mineuno/src/main/java/com/mineuno/MatchManager.java#L420)、[UnoListener.java:122](https://github.com/jurky123/mineUNO/blob/8b6950afa876aa60f30f0cb28105560f20f0c1f6/mineuno/src/main/java/com/mineuno/UnoListener.java#L122)。
+
+### B14 — P0：PackHost 散装目录被压平【静态确认】
+
+- **Current：** `addDirectory()` 递归时把当前子目录当相对根，叶子文件用 `relative(dir,f)` 存入 map。
+- **Why：** `pack/assets/mineuno/textures/a.png` 变为 zip 根下的 `a.png`，不同目录同名文件还互相覆盖。资源路径不再符合输入目录结构。
+- **Suggested change：** 固定初始 root，递归仅更新 current，所有 entry 用 root.relativize(file)；读失败应报告并中止发布损坏版本。
+- **Benefit：** 修复已宣称支持的散装资源包功能。
+- **Complexity：LOW；Worth doing：YES。** 验收：多层目录、不同路径同名 PNG，检查 zip entries。
+- **依据：** [PackHostPlugin.java:105](https://github.com/jurky123/mineUNO/blob/8b6950afa876aa60f30f0cb28105560f20f0c1f6/packhost/src/main/java/com/mineuno/packhost/PackHostPlugin.java#L105)。
+
+### B15 — P0：PackHost 重建与 HTTP 生命周期不完整【静态确认】
+
+- **Current：** reload 主线程解压全部文件到 Map，再覆盖正在提供的 pack.zip，之后才重启 HTTP；每次下载 `readAllBytes`；创建的固定线程池不保存、不 shutdown。
+- **Why：** 下载与重建并发可读到半成品；失败可留下损坏文件与旧 hash；大包占用与解压后总大小相关的内存，并阻塞 tick；使用过的 executor 在 stopServer 后仍可能保留线程。线程池有两个 worker 不代表排队长度有界。
+- **Suggested change：** 先后台构建到新版本文件，成功校验后原子发布不可变的 path/hash/url 快照；按 hash/版本 URL 保留短期旧包，保证下载与 hash 一致；流式发送/计算摘要；保存 ExecutorService 并显式关闭，限制积压。资源包 ID 稳定并按 ID 过滤状态事件，避免 required 策略处理其他插件的资源包。
+- **Benefit：** reload 不截断下载、不泄漏线程；资源包大小增长时也不会直接拖垮游戏主线程。
+- **Complexity：MEDIUM；Worth doing：YES。** 验收：下载中 reload、构建失败、连续重载后的线程数量、其他插件资源包拒绝事件。
+- **依据：** [PackHostPlugin.java:66](https://github.com/jurky123/mineUNO/blob/8b6950afa876aa60f30f0cb28105560f20f0c1f6/packhost/src/main/java/com/mineuno/packhost/PackHostPlugin.java#L66)、[PackHostPlugin.java:166](https://github.com/jurky123/mineUNO/blob/8b6950afa876aa60f30f0cb28105560f20f0c1f6/packhost/src/main/java/com/mineuno/packhost/PackHostPlugin.java#L166)、[PackHostPlugin.java:196](https://github.com/jurky123/mineUNO/blob/8b6950afa876aa60f30f0cb28105560f20f0c1f6/packhost/src/main/java/com/mineuno/packhost/PackHostPlugin.java#L196)、[PackHostPlugin.java:223](https://github.com/jurky123/mineUNO/blob/8b6950afa876aa60f30f0cb28105560f20f0c1f6/packhost/src/main/java/com/mineuno/packhost/PackHostPlugin.java#L223)。
+
+### 其他应随上述改动处理的问题
+
+| 问题、现状与后果 | 最小修改与收益 | 复杂度 / 值得做 | 依据 |
+|---|---|---|---|
+| 仅有 `mineagent.approve` 的玩家能看到审批按钮，但命令入口先要求 `mineagent.admin`，无法批准 | 按子命令检查权限，恢复文档声明的独立审批角色 | LOW / YES，P0 | [MineAgentCommand.java:31](https://github.com/jurky123/mineAgent/blob/812d5a69673947c80924dd79bbaba8218166a628/paper-plugin/src/main/java/com/mineagent/paper/command/MineAgentCommand.java#L31) |
+| 定向 agent 回复目标不在线时改为全服广播；未来私有入口或 player 模式会泄露定向内容 | 离线就不投递/保留待取，禁止自动扩大受众；共享历史不等于私密会话 | LOW / YES，P0 | [MineAgentPlugin.java:88](https://github.com/jurky123/mineAgent/blob/812d5a69673947c80924dd79bbaba8218166a628/paper-plugin/src/main/java/com/mineagent/paper/MineAgentPlugin.java#L88) |
+| `teleport()` 忽略返回结果，总报告成功；`performCommand()` 的布尔值不是命令业务结果/输出 | 返回真实 teleport 结果；命令响应明确“已提交”，需要结构化结果的能力优先提供专用工具 | LOW / YES，P0 | [ToolExecutor.java:152](https://github.com/jurky123/mineAgent/blob/812d5a69673947c80924dd79bbaba8218166a628/paper-plugin/src/main/java/com/mineagent/paper/ToolExecutor.java#L152)、[ToolExecutor.java:197](https://github.com/jurky123/mineAgent/blob/812d5a69673947c80924dd79bbaba8218166a628/paper-plugin/src/main/java/com/mineagent/paper/ToolExecutor.java#L197) |
+| ChatListener 在 AsyncChatEvent 中读取 world；只应在确定的线程读取玩家动态状态 | 删除当前后端未使用的 world 字段，或主线程快照；不把所有聊天处理搬回主线程 | LOW / YES，P0 风险 | [ChatListener.java:32](https://github.com/jurky123/mineAgent/blob/812d5a69673947c80924dd79bbaba8218166a628/paper-plugin/src/main/java/com/mineagent/paper/ChatListener.java#L32) |
+| UI 模态节点被 renderer 提升到 overlay，但命中仍按父树 contains；变换也未逆变换命中，可能“看到点不到/点穿” | 渲染与输入共享 overlay 顺序及变换规则；为父容器之外的模态、背景点击、滚轮补用例 | MEDIUM / YES，P0 风险 | [UiTreeRenderer.java:36](https://github.com/jurky123/mineUI/blob/94a15a4b42978b3ab67c14014e32ea516c4e1eaf/mineui-client/src/client/java/com/mineui/client/ui/render/UiTreeRenderer.java#L36)、[UiNode.java:214](https://github.com/jurky123/mineUI/blob/94a15a4b42978b3ab67c14014e32ea516c4e1eaf/mineui-client/src/main/java/com/mineui/ui/tree/UiNode.java#L214) |
+| Agent 启动连接在 ToolExecutor/ApprovalHandler 初始化之前；旧 WebSocket 的迟到 onOpen/onText 未按连接代次隔离 | 先完成对象装配再 start；每连接持有 partial buffer，shutdown/重连后忽略旧代回调 | MEDIUM / YES，P0 风险 | [MineAgentPlugin.java:32](https://github.com/jurky123/mineAgent/blob/812d5a69673947c80924dd79bbaba8218166a628/paper-plugin/src/main/java/com/mineagent/paper/MineAgentPlugin.java#L32)、[BackendClient.java:238](https://github.com/jurky123/mineAgent/blob/812d5a69673947c80924dd79bbaba8218166a628/paper-plugin/src/main/java/com/mineagent/paper/BackendClient.java#L238) |
+
+### GUI 与玩家边界覆盖结论
+
+| 检查项 | 源码结论与未决项 |
+|---|---|
+| shift/数字键/double click/cursor | UNO 菜单顶层 holder 匹配即取消 InventoryClickEvent，底部背包点击不分发动作；不能据此断言存在复制漏洞。但所有顶层 click 类型都被当成按钮动作，需限制支持的类型并实测 |
+| drag | 有独立 InventoryDragEvent 取消，不能说“遗漏 drag” |
+| InventoryClose | 没有 close 处理；多数菜单无必要在关闭时结束游戏，但规则页游标应清理，窗口切换任务要校验会话 |
+| creative/spectator | 没有系统性模式限制或专门测试；复核创造物品交互、旁观者座位，不将“未测”写成已知复制 Bug |
+| quit/reconnect | 有 UUID 映射、away、grace 和重连处理；规则页非参赛玩家退出时没有 reset，grace 遍历中 forfeit/cleanup 还可能修改其他 grace 项，需快照遍历验证 |
+| death/respawn/world change | 未发现专门策略；座位、回传位置、BossBar 与会话是否保留需明确并联机验证 |
+| async | Agent 网络调用不阻塞等待主线程；ToolExecutor 用 scheduler 回主线程，这是正确方向。MineUI 注释声称插件消息回调在 Netty 线程，不能把注释当运行证据，应按目标 Paper 实测线程再决定调度方式 |
+| replay/重复点击 | Game 有当前玩家/阶段/牌归属校验，是有效边界；GUI revision 不能替代规则校验或未来经济交易幂等键 |
+
+## 5. Overengineering
+
+**没有发现大规模 Manager 套 Manager、Factory 链或纯转发模块。** 主要问题是少数类承担过多状态，而非抽象太多。
+
+| 当前结构 | 判断 | 最小处理 / 收益 | 复杂度 / Worth doing |
+|---|---|---|---|
+| `SessionManager` + `UiSessionManager` | KEEP | 前者是连接握手信息，后者是单页生命周期；不合并 | NONE / YES |
+| `Game.Events` + `MatchManager.events()` + `Table implements Game.Events` | REFACTOR | 保留规则事件一个出口；Table 实际没有作为 `g.events` 安装，去掉误导性的接口实现，作为表现对象被调用；最重要的是回调在状态提交后触发 | MEDIUM / YES |
+| `BackendClient.TaskScheduler` | KEEP | 既有 BukkitSchedulerAdapter 又有 SmokeMain.JdkScheduler，可离线测重连；不是只有一实现的无效接口 | NONE / YES |
+| `checkpointStore` adapter | KEEP | 将 Eino checkpoint 契约适配现有 Store；不因“小”而删除 | NONE / YES |
+| `StateAccess` / `TextMeasurer` | KEEP | 纯布局测试避开 Minecraft runtime，有实证价值 | NONE / YES |
+| `HandLayout` / `PileLayout` / `TurnMarker` | KEEP | 几何、确定性散布、标识生命周期是不同职责；无需合并进更大的 Table | NONE / YES |
+| `identity_links` / `UpsertIdentity` | 暂不扩大 | 当前只有测试使用，若暂不接 QQ/Web 可删除未使用入口；不要为清理代码直接删现有数据库表 | LOW / OPTIONAL |
+| `ACTION_ACCEPTED/REJECTED`、ASSET_MANIFEST 等预留协议值 | 不实现新层，也不重编号 | 将未实现能力标清楚，保留线协议编号稳定 | LOW / YES |
+
+最容易形成过度工程化的是**接下来照设计文档一次补齐所有控件**。当前应先用选色/质疑页验证现有框架；不为未来商店、皮肤浏览器提前实现完整 DOM、焦点系统、远程资源平台。
+
+## 6. Simplification
+
+| 可以删除/合并的内容 | Current / Why | Suggested change / Benefit | Complexity / Worth doing |
+|---|---|---|---|
+| `Table.handSpacing` 与对应无效配置 | 只有读取赋值，排布实际用角度；用户改了没有效果 | 删除字段与配置说明，或明确实现；当前优先删除误导项，P3 | LOW / YES |
+| `Arena.ready()`、`Table.seatOwners()/handBase()` 等未使用查询 | 当前仓库生产调用未发现 | 确认外部无公开调用后删除；减少 API 面，P3 | LOW / YES，条件：未对外承诺 |
+| `approvalTool.cfg` | 被传入保存但未使用 | 从该工具构造移除，超时仍由 NewApprovals 负责；消除假配置依赖，P3 | LOW / YES |
+| `rulePages()` 每次重建整套教程 | openRules 一次还调用两遍 | 定义为不可变 static 数据，仅渲染当前页，P2 | LOW / YES |
+| Menus/UnoCommand 重复准备状态切换 | 两处直接操作 game.ready | 合并到 `MatchManager.toggleReady(player)`，顺便集中 WAITING 校验；两入口行为一致，P2 | LOW / YES |
+| `lastState` 字符串计时推断 | 已证明无法覆盖同人连续回合 | 用明确 turn/decision 序号或事件替代并删除，见 B09，P0 | MEDIUM / YES |
+| 首次开页自动生成 dev override | 生产路径做开发功能，旧文件遮住新版本 | 改开发开关/命令，删除自动执行路径，见 B08，P0 | LOW / YES |
+| RowNode/ColumnNode 重复 measure/layout | 两份近似轴向算法，修尺寸规则可能漏一份 | 等修布局语义时提一个包内轴向 helper；保留易读的 Row/Column；无须新模块，P4 | MEDIUM / 暂缓 |
+
+依据：[Table.java:57](https://github.com/jurky123/mineUNO/blob/8b6950afa876aa60f30f0cb28105560f20f0c1f6/mineuno/src/main/java/com/mineuno/Table.java#L57)、[Menus.java:54](https://github.com/jurky123/mineUNO/blob/8b6950afa876aa60f30f0cb28105560f20f0c1f6/mineuno/src/main/java/com/mineuno/Menus.java#L54)、[privileged.go:96](https://github.com/jurky123/mineAgent/blob/812d5a69673947c80924dd79bbaba8218166a628/internal/tools/privileged.go#L96)。
+
+不要把五处玩家名查询、三行 tab filter 或两套 JSON 消息结构作为建立公共 common 插件的理由。跨语言协议可以共享测试向量/规范，不必强行共享 Java/Go DTO 代码。
+
+## 7. Module Merge / Split
+
+| 模块 | 决策 | 原因 / 不做的后果 |
+|---|---|---|
+| minePlugins 聚合仓库 | KEEP | 用户明确需要独立发布；submodule 是合理实现。加聚合验证入口比迁移单体仓库收益高 |
+| mineui-protocol | KEEP | 两个不同 runtime 消费，真正公共边界 |
+| mineui-paper | REFACTOR | 包内整理 API 与实现；第一步不拆新的运行时插件 |
+| mineui-client | KEEP | 布局、渲染、输入先按包分；没有必要拆 5 个 Gradle 模块 |
+| mineAgent Go 与 Paper | KEEP | 独立进程隔离模型延迟与后端依赖，生命周期及部署不同 |
+| Go internal packages | KEEP | tools/storage/ws/session 有实质职责；小 package 不是部署碎片 |
+| mineUNO/mineuno | REFACTOR，包/类层面局部 SPLIT | `Card` 规则数据与 ItemStack 渲染分开；Table 抽出手牌表现及生命周期管理；不立刻创建 uno-domain/uno-api/uno-service 多模块 |
+| PackHost | KEEP 独立插件 | 可服务不止 UNO，不存在“总与 UNO 一起部署且相互调用”的证据 |
+| pack/gen_pack.py | KEEP 构建脚本 | 不抽成服务或插件 |
+| 全局 common/platform/core | 不新增 | 目前没有足够的真实公共业务消费者，新增会扩大维护面 |
+
+推荐拆出的 `CardItems` 是有明确依据的一次类拆分：`Card` 留 id/color/type/points 等纯规则，`CardItems` 持有配置并构建 ItemStack。它能去掉 `MineUnoPlugin.instance()` 的主要使用原因，并让 Game 在无 Paper 条件下单测；这不是为了增加层数。复杂度 MEDIUM，P2，值得做。
+
+## 8. Coupling
+
+### SOLID 的实际判断
+
+| 原则 | 项目中的判断 | 建议 |
+|---|---|---|
+| SRP | Table 同时有手牌命中、座位、动画任务、场景实体；MatchManager 还含调参、属性修复和大量消息 | 优先分离规则转换、手牌表现、资源生命周期；不把每种音效拆成 service |
+| OCP | `UiSpecParser` 与 renderer switch 增加控件需改多处 | 当前控件少，集中 switch 可读；不急着引入动态注册工厂 |
+| LSP | `Menus.Holder.getInventory()` 返回 null，不能作为通用 holder 使用 | 若公开复用，持有实际 Inventory；当前仅作类型标记，不夸大为立即崩溃 |
+| ISP | Game.Events 的 default 空回调使消费者可选处理；当前可接受 | Table 去掉无用接口实现即可，不拆十多个单方法事件接口 |
+| DIP | Game 通过 Card 反向依赖插件；MineUI 公共对象暴露具体 MineUiPlugin/manager | 分离 CardItems；GUI 对外收窄为小 facade，内部保留直接构造注入 |
+
+### 跨插件与共享状态
+
+- 当前没有发现 Plugin A 直接访问 Plugin B 内部类，所以不能编造“已经高度跨插件耦合”。风险是在未来业务插件直接绑定 `MineUiPlugin.uiSessions()/transport()`。
+- `Table.HITS` 是 public static 可变索引，应收口到插件实例持有的命中注册表，或包内访问方法。无需通用事件总线。
+- Game 的 public 可变 hands/ready/draw/phase、`games()` 返回可变 values view，允许 UI/命令绕过规则。先收口写入口并返回只读快照；不必一次给每字段写 getter。
+- `resetMovement()` 属于跨插件**运行时行为耦合**，比 import 关系更危险，见 B13。
+- GUI 与业务命令应共同调用现有 MatchManager/规则入口。审批 UI 也只提交 approval ID，由原有审批边界验证；不能从按钮直接调用 ToolExecutor。
+
+## 9. Performance
+
+没有实测瓶颈归因，下表是已看到的工作量和可降低的重复工作。
+
+| 路径 | 当前频率 / 复杂度 | 改法与收益 | 优先级 / 复杂度 |
+|---|---|---|---|
+| `tickAim → Table.aim` | 每 2 tick；约 O(参赛玩家 × 可见手牌数)，默认上限 16 | 先缓存眼坐标/常量，命中变化时只更新旧/新选中牌；不要每次重排、构建所有 ItemStack 和 teleport 全手牌 | P2 / MEDIUM |
+| `MatchManager.tick` | 每 10 tick；遍历房间与玩家、HUD、座位 | 修正座位偏移错误；HUD 文案值没变化不重发，倒计时可 1 秒更新 | B13/P2 / LOW |
+| `Table.makePrivate` | 创建每张手牌时遍历全服玩家；约 O(参赛玩家×池大小×在线人数) | 核对目标 Paper 能力后考虑默认不可见、仅 show 给 owner；必须验证重连/追踪行为 | P4 / MEDIUM |
+| `Table.tasks/temp` | 每次动画追加，完成不移除，直到整场结束 | 只保存活跃句柄，任务/临时实体完成即释放；Classic 长局不持续积累 | P2 / LOW–MEDIUM |
+| 客户端 z 排序 | renderer 每帧为容器复制排序；鼠标事件再复制排序 | 树/z 不变时缓存排序结果；不是建立全局缓存 | P4 / LOW–MEDIUM |
+| `AnimationController.update` | 每帧复制 entries；完成时逐项 remove | 先监测活跃动画量；若频繁重叠，对同 node/property 替换旧动画 | P4 / MEDIUM |
+| PackHost rebuild/download | 解压数据总量常驻 map，下载全包进内存；reload 主线程执行 | 不可变版本+后台构建+流式 I/O，见 B15 | P0 / MEDIUM |
+| Agent 串行队列 | 16 请求，单次运行最长 3 分钟 | 保留串行会话避免共享历史并发错乱；加每人限速/排队超时、busy 返回原因，审批结果可靠投递 | P2 / LOW–MEDIUM |
+| SQLite | WAL、单连接；每条聊天 INSERT 后 UPDATE；历史有索引 | 当前规模合理；两写若要求一致放事务，先做保留策略，不上数据库服务/大连接池 | P2–P4 / LOW |
+
+依据：[MatchManager.java:44](https://github.com/jurky123/mineUNO/blob/8b6950afa876aa60f30f0cb28105560f20f0c1f6/mineuno/src/main/java/com/mineuno/MatchManager.java#L44)、[Table.java:422](https://github.com/jurky123/mineUNO/blob/8b6950afa876aa60f30f0cb28105560f20f0c1f6/mineuno/src/main/java/com/mineuno/Table.java#L422)、[UiTreeRenderer.java:92](https://github.com/jurky123/mineUI/blob/94a15a4b42978b3ab67c14014e32ea516c4e1eaf/mineui-client/src/client/java/com/mineui/client/ui/render/UiTreeRenderer.java#L92)、[agent.go:73](https://github.com/jurky123/mineAgent/blob/812d5a69673947c80924dd79bbaba8218166a628/internal/agent/agent.go#L73)。
+
+未发现 PlayerMoveEvent 每次扫全世界、每 tick 数据库查询或无界实体扫描。不要把源码中的每个 Stream 都列成性能问题。没有 `Map<Player,...>` 大型表；大多数服务端索引用 UUID，这是优点。UiSession 持有 Player 并非自动等于泄漏，关键是 B08 的作废和外部引用释放。
+
+## 10. GUI Architecture Review
+
+### 当前完整流程
+
+1. Fabric JOIN 发 HELLO；Paper 记录客户端信息并 ACK。
+2. 服务端调用 `UiSessionManager.open(player,app,view)`，先关旧会话，再发 OPEN。
+3. 客户端从 dev 目录或 mod classpath 加载 JSON，构造 UiNode 树与 UiScreen。
+4. 业务用 `state()` 初始化、`on()` 注册动作、`snapshot()` 发完整状态。
+5. 客户端将文本/visible 绑定到 UiStateStore，measure/layout 后由 UiTreeRenderer 绘制。
+6. Button 点击发送 action ID；服务端调用 handler，state 变化下发 PATCH。
+7. 玩家 Esc、服务端 CLOSE、玩家退出分别走关闭路径；目前停用与断线缺口见 B08。
+
+| 能力 | 当前状态 | 对复用的实际影响 |
+|---|---|---|
+| 页面定义 | JSON + Row/Column/Stack/Grid/Scroll 等节点 | 是客户端声明式页面，不是 Bukkit rows/builder 类型 GUI |
+| button/action | 只有静态 action ID；协议 Action 有 payload，但 `sendAction(String)` 未提供参数绑定 | 四个固定选色按钮足够；动态 cardId/roomId/approvalId 还要补绑定或用固定槽位→服务端 ID 映射 |
+| 状态 | 顶层 state 设置、JSON Patch 同步 | 基础可用；修 B06 后才适合实时变化 |
+| 每玩家 session | 同时一个 | 足够当前业务；HUD 与全屏并存暂未实现 |
+| 页面切换 | 关闭旧 session 再开新 | 没有 page stack；先由业务提供返回动作即可 |
+| 动态列表 | 静态 children；绑定主要是对象点路径，未看到按数组生成节点 | Grid ≠ 数据驱动列表，需要分页槽位或小型 repeat 能力 |
+| async 数据 | 没有专门 Future API；UiSession 注释要求主线程 | 后台加载完成后回主线程，再检查 session 未关闭且仍是当前会话即可，不必新增 AsyncPageFramework |
+| 无 mod 降级 | 未发现 Dialog/Inventory fallback renderer；test 命令提示安装 mod | README 的自动回退是能力缺口，UNO 迁移必须保留原 Menus |
+| 资源分发 | classpath + 开发目录；未使用 Minecraft ResourceManager 加载页面 | 不改客户端就新增业务页面的部署路径尚未打通；PackHost 发 zip 不会自动让此 loader 读到 UI JSON |
+| 高级能力 | 分片/压缩、HUD runtime、ItemView、PlayerView、输入框等尚未完整实现 | 不应按 README 功能清单承诺已支持 |
+
+依据：[UiSession.java:86](https://github.com/jurky123/mineUI/blob/94a15a4b42978b3ab67c14014e32ea516c4e1eaf/mineui-paper/src/main/java/com/mineui/paper/ui/UiSession.java#L86)、[ProtocolClient.java:55](https://github.com/jurky123/mineUI/blob/94a15a4b42978b3ab67c14014e32ea516c4e1eaf/mineui-client/src/client/java/com/mineui/client/net/ProtocolClient.java#L55)、[UiSpecParser.java:31](https://github.com/jurky123/mineUI/blob/94a15a4b42978b3ab67c14014e32ea516c4e1eaf/mineui-client/src/main/java/com/mineui/ui/spec/UiSpecParser.java#L31)、[UiDefinitionLoader.java:74](https://github.com/jurky123/mineUI/blob/94a15a4b42978b3ab67c14014e32ea516c4e1eaf/mineui-client/src/main/java/com/mineui/ui/spec/UiDefinitionLoader.java#L74)。
+
+### 最小 API 方向
+
+**继续使用 session 风格，不新建 `Gui.builder().rows()` 或 `GuiPage` 继承体系。** 它最贴近现有实现，且能兼容原生客户端页面。
+
+第一步：在 mineui-paper 内声明稳定的 `com.mineui.api` 小入口，只暴露能力查询、open、会话 state/on/snapshot/close；隐藏 Transport、连接表和 manager 的变更方法。明确 owner plugin，owner 停用时关闭其会话；提供关闭回调用来撤销业务订阅。
+
+目前可复用的调用形态如下，仅是现有 API 的演示，并非已提交代码：
+
+```java
+UiSession s = mineUi.uiSessions().open(player, "mineuno", "color");
+s.on("red", e -> matches.chooseColor(e.player(), game, Card.Color.RED));
+s.on("yellow", e -> matches.chooseColor(e.player(), game, Card.Color.YELLOW));
+s.on("green", e -> matches.chooseColor(e.player(), game, Card.Color.GREEN));
+s.on("blue", e -> matches.chooseColor(e.player(), game, Card.Color.BLUE));
+s.snapshot();
+```
+
+必须在外层确认 mod、页面版本、当前游戏身份/阶段；handler 仍由 Game 再验证，处理成功或页面失效时关闭。这个例子不代表已经实现自动降级或稳定对外 API。
+
+第一消费者可以 compileOnly/provided 依赖 MineUI 发布的 jar，只使用稳定 API 包；选择 optional 集成时在启动边界检查一次依赖，把引用 MineUI 类型的代码隔离在 adapter，避免未安装时提前加载。不要把 MineUI 类 shade 到 UNO jar，否则会出现服务类型/类加载器身份冲突。
+
+当 UNO 与 Agent 都开始消费、需要独立版本兼容时，再增加 **一个 `mineui-api` 编译模块**，由 mineui-paper 实现并发布服务。保留 mineui-paper 名称，不必再改为 gui-core 或新增公共 runtime 插件。协议类型尽量留内部；初期 JsonObject 可以接受，等有实际兼容压力再收口。
+
+## 11. GUI Reuse Opportunities
+
+| Plugin / Current GUI | Can migrate | Required GUI capability | Difficulty | 建议 |
+|---|---|---|---|---|
+| MineUNO 选色 | YES | 四按钮、绑定当前 game/session、关闭 | LOW | 首个试点；原版继续 Menus.openColor |
+| MineUNO +4 接受/质疑 | YES | 两按钮、对局身份/phase、过期失效、倒计时 | LOW–MEDIUM | 第二个试点；复用 Game.acceptWild4/challenge |
+| MineUNO 控制面板 | YES | 静态按钮、可见/启用状态、返回/关闭 | LOW–MEDIUM | 修状态协议后接入，不改变规则 |
+| MineUNO 规则六页 | YES | 文本/scroll、页码/返回 | LOW | 可用静态页面，先共享规则数据，非必须迁移 |
+| MineUNO 房间准备页 | PARTIAL | 玩家列表、ready、host、人数和异步更新 | MEDIUM | 固定最多 8 个槽位即可，不必先实现通用虚拟列表 |
+| MineUNO 大厅列表 | PARTIAL | 分页、稳定 room UUID、列表刷新 | MEDIUM | 先修 B12；用分页固定槽位最省成本 |
+| MineUNO 实体手牌/牌桌 | PARTIAL | 动态牌列表、cardId 参数、资源图、回合状态、动画、完整手牌可达 | HIGH | 不要第一步整体替换；需保留 3D 公共牌桌与原版手牌通路 |
+| MineUNO BossBar/ActionBar | PARTIAL | 真正 HUD overlay、生命周期、与 Screen 并存 | MEDIUM–HIGH | 目前 advertised hud capability 不等于实现；先保留 |
+| MineAgent 聊天审批按钮 | PARTIAL | 待审批列表、prompt、稳定 ID、权限、超时/已处理同步 | MEDIUM | 聊天保留；UI 只做替代入口，不承担审批规则 |
+| MineAgent 普通问答 / status | 可选 | 列表/文本/输入；只读 status 可静态按钮刷新 | MEDIUM | 聊天已经符合使用场景，收益不够大，暂缓 |
+| PackHost 管理命令 | NO（当前不值得） | 文件列表、构建状态、异步操作 | MEDIUM | 没有现有 GUI 需要统一；保留 CLI，先修可靠性 |
+
+“其他插件能否最低成本复用”的答案是：**可以，但先统一业务动作与会话入口，不强行把所有界面都换皮。** 选色/质疑仅需一个 adapter 和两个客户端页面；全量 UNO 手牌不是同一个工作量等级。
+
+首批页面可随客户端 mod 发布，成本最低。若要求后续服务端插件独立增加页面、不让玩家更新 mod，再把 loader 切到资源管理接口，使用带版本的资源包页面；这应遵循现有设计的资源包路线，不直接建设远程资源服务。
+
+## 12. Proposed Architecture
+
+目录建议保留现有仓库；以下 `api`、`domain` 等主要是 package，不是新 Gradle 模块：
+
+| 位置 | 建议内容 |
+|---|---|
+| mineUI/mineui-protocol | 现有协议，补契约与测试 |
+| mineUI/mineui-paper/api | 小型对外 GUI API；会话所有者/关闭约定 |
+| mineUI/mineui-paper/internal | 连接、传输、session 实现 |
+| mineUI/mineui-client | 现有 spec/tree/render；定义与 runtime 实例分离 |
+| mineUNO/mineuno/domain | Game + 纯 Card；状态转换、规则测试 |
+| mineUNO/mineuno/presentation | CardItems、Table/HandView、Hud；活跃资源清理 |
+| mineUNO/mineuno/ui | 原 Menus + 可选 MineUI adapter，共用业务动作 |
+| mineUNO/mineuno | MatchManager 继续负责编排；Command/Listener 只转发与输入校验 |
+| mineUNO/packhost | 原独立插件；构建/HTTP 生命周期可拆包内类 |
+| mineAgent | 保留 Go package 和 Paper 拆分，修 request/approval/transport |
+
+```mermaid
+flowchart TD
+    UnoUI["UNO Inventory / MineUI adapter"] --> Match["MatchManager：统一业务入口"]
+    Match --> Domain["Game + 纯 Card"]
+    Match --> View["Table / Hud / CardItems"]
+    UnoUI --> API["MineUI 公共 API"]
+    ApprovalUI["Agent 审批 UI"] --> API
+    ApprovalUI --> Approval["原审批入口与权限检查"]
+    Impl["mineui-paper 实现"] -.->|"实现"| API
+    Impl --> Protocol["mineui-protocol"]
+    Client["mineui-client"] --> Protocol
+```
+
+公共能力抽取判断：GUI 是值得建立稳定契约的真实候选；UNO 两种 UI 的动作应该在 UNO 内共享；Minecraft/QQ/Web channel 边界保留在 Agent。配置、调度、玩家查询、MiniMessage、命令补全、数据库目前都不值得另建跨插件 platform。PackHost 修好后可以继续作为独立共享服务，但不需要为一次资源下载增加 Java SDK。
+
+## 13. Refactor Roadmap
+
+### Phase 1 — 修正确性与边界，保持现有结构
+
+建议顺序：B01 权限闭环 → B02 请求身份 → B03/B04 可靠发送与审批收尾 → B05/B06 会话与状态 → B09–B13 UNO 规则/菜单/手牌/座位 → B14/B15 PackHost。并行开发会增加验证负担，单人先按独立小提交推进。
+
+每次进入修改前明确 Goal / Files / Reason / Risk。不能把所有修复一次塞进“架构重构”提交。Bug 修复会改变错误行为；“保持功能不变”应理解为保持既定功能契约，不是保留已知错误。
+
+最小必要测试：
+
+| 测试层 | 核心用例 | 验证价值 |
+|---|---|---|
+| Game 规则 | 两人反转、同人连续回合、空牌堆、POST_DRAW/CHALLENGE 弃权、发牌结束竞态 | 防回合/罚牌对象错误，不依赖 GUI |
+| GUI session | 旧 session ACTION、主动状态 dirty、关闭后操作、handler 抛异常 | 保护未来所有业务插件 |
+| Paper 菜单 | 房间快照改变、关闭按钮、延迟切页；shift/drag/数字键/双击 | 验证引擎交互，不能由纯单元测试替代 |
+| Agent | 权限查询失败、执行前撤权、请求边界、慢发送、outcomes 满、重启清理 | 防实际副作用和丢审批 |
+| PackHost | 保留相对路径、重名路径、并发下载/重建、重载线程数量 | 防包损坏、tick 阻塞和泄漏 |
+
+已有测试值得保留：MineUI 有协议、Patch、revision、布局/动画单测；Agent 有模型模拟服务器、权限 denied、RPC timeout、WS 握手等测试。但缺少关键组合边界；尤其不能用 RevisionGuard 单类通过来代替 UiSession＋客户端状态链路验证。MineUNO/PackHost 没有已提交测试目录。
+
+### Phase 2 — 降低局部耦合，做第一个 GUI 消费者
+
+1. 把 CardItems 从 Card 分离，使 Game 可独立测试；收口 ready/phase 等写入口。
+2. 删 `lastState` 推断，规则状态提交后再发事件；发牌动画不再直接负责推进 Game。
+3. MineUI 收口公共 API、owner 与关闭通知；补齐 B07/B08。
+4. UNO 只接选色和质疑；有 mod 走新页面，无 mod 仍调用现有 Menus。验证同一对局同时包含原版和 Fabric 玩家。
+5. 把资源分发和客户端页面版本说明写清楚，修正文档中未实现的自动回退/HUD 等描述。
+
+风险：API 类型归属和 shade 会影响插件类加载；异步回调可能回写已经关闭的页面；两套 UI 必须消费同一份游戏状态。
+
+### Phase 3 — 按实际负载和第二消费者扩展
+
+- 逐步接大厅与房间，优先固定槽位分页；只有真实列表需求才做 repeat/参数绑定。
+- Agent 审批 UI 接同一审批入口，保留聊天；具备两个消费者后再决定独立 mineui-api artifact。
+- 基于 profiler 与网络计数优化手牌实体更新、z 排序和状态 batch；不预先建设缓存平台。
+- 在聚合仓库增加可重复构建/验证入口及兼容矩阵，分别执行子项目构建，再更新 submodule 指针。无需统一 Maven/Gradle，也无需为了它迁移仓库。MineUI 安装包脚本读取 fabric_api_version 作为文件名，但下载 URL 固定到旧版本，升级变量会造成文件名与实际内容不符；同时 mktemp 依赖预先存在的 /tmp/opencode。应修正版本解析和临时目录，使打包结果可在干净环境复现。依据：[build_client_kit.sh](https://github.com/jurky123/mineUI/blob/94a15a4b42978b3ab67c14014e32ea516c4e1eaf/tools/build_client_kit.sh#L24)。
+
+构建门禁（在具备项目所需工具链的环境执行；本次未执行）：MineUI `./gradlew test build --warning-mode all`；MineAgent `go test ./...`、`go test -race ./...`、`go vet ./...` 与 Paper 插件 Gradle build；UNO/PackHost Maven verify；独立 Paper 26.2 和 Fabric 客户端做上述联机用例。编译输出中检查 warning、API 版本、依赖声明与 jar 内容，确认业务 jar 没有复制 MineUI 公共类。
+
+## 14. Top 10 Changes
+
+这是按修复批次压缩后的十项，包含相关 Bug 的组合修复，不另列几十条“优化建议”。
+
+| 顺序 | 最值得做的修改 | 优先级 | 主要文件 | 收益 / 不做的后果 | 复杂度 |
+|---:|---|---|---|---|---|
+| 1 | Agent 权限 fail-closed，执行前复查 UUID/权限 | P0 | privileged.go、ToolExecutor、protocol | 防预检错误/撤权后仍给物品与传送 | LOW–MEDIUM |
+| 2 | Request 绑定触发消息、历史截止点和 requester | P0 | main.go、agent.go、storage.go | 多人请求不串题、不混用身份 | MEDIUM |
+| 3 | WebSocket 可靠发送与审批终态可靠投递 | P0 | BackendClient、approval.go、agent.go | 防静默丢聊天/审批、永久 pending | MEDIUM |
+| 4 | MineUI session 校验、状态 dirty/version、关闭边界 | P0 | UiSessionManager、UiSession、ProtocolClient、UiStateStore、UiScreen | 建立所有未来业务 UI 的正确性基础 | MEDIUM |
+| 5 | UNO 显式回合转换与退出状态机，补规则测试 | P0/P2 | Game、MatchManager、Table、Card/CardItems | 修两人反转、失去倒计时、弃权罚错对象、发牌竞态 | MEDIUM |
+| 6 | 修菜单稳定 ID、关闭及 next-tick 导航；使所有手牌可达 | P0 | Menus、UnoListener、Table/HandView | 避免错房间、关不掉、16 张以后不能出牌 | MEDIUM |
+| 7 | 修多桌位置、座位基准与属性所有权 | P0 | Arena、MatchManager、Table、UnoListener | 多桌不重叠、不破坏其他插件玩家属性 | MEDIUM |
+| 8 | PackHost 保留目录、不可变版本构建、流式 I/O、关闭 executor | P0 | PackHostPlugin | 修包结构/下载损坏，降低内存与 tick 风险 | MEDIUM |
+| 9 | 收口小型 GUI API，以 UNO 选色/质疑为首个消费者 | P1/P2 | mineui-paper API、UNO adapter、两个 JSON 页面 | 最低成本验证复用，避免先造大框架 | MEDIUM |
+| 10 | 删除无效状态与重复刷新，补聚合验证入口 | P2/P3 | Table、Menus、MatchManager、构建脚本 | 释放已完成资源，减少误导配置，防子仓库组合回归 | LOW–MEDIUM |
+
+**三个关键问题的答案：**
+
+- **可删/可合并什么？** 优先删失效 handSpacing 配置、未使用公开查询、无效 cfg 注入、生产路径自动 dev override；合并准备状态切换，删除 lastState 推断。不要删有测试价值的 TaskScheduler、StateAccess、TextMeasurer，也不合并主要运行模块。
+- **GUI 最低成本怎么复用？** 延续现有 UiSession，在启动边界接一个可选 adapter；先移选色/质疑，原版继续旧 Menus。首批页面随 mod 发布；有第二消费者后再独立 api module。
+- **未来一年最大的技术债是什么？** 请求/审批身份与持久状态割裂；GUI 把 action 计数当状态版本、没有业务 owner 生命周期和页面兼容契约；UNO public mutable state 与动画反向推进规则；缺少集成测试导致这些边界继续依赖人工试玩。它们比“目录是否漂亮”更值得处理。
