@@ -47,12 +47,13 @@ git clone --recurse-submodules git@github.com:jurky123/minePlugins.git
 
 ### MineSkin —— 服务器皮肤定制包
 
-换肤交给 SkinsRestorer，MineSkin 插件用 `/skins` 统一提供皮肤浏览入口。
+换肤交给 SkinsRestorer，MineSkin 插件把 `/skins` 作为唯一皮肤入口（SR 自带 GUI 已禁用，无重复功能）。
 
-- `/skins` 打开皮肤界面：mod 客户端是分页列表 + 可拖动 3D 预览，点一下立即换肤
-- 原版客户端自动退回可点击的聊天列表（关键词搜索 + 翻页）
-- 内置 90+ 皮肤，中文界面 + 换肤冷却 5 秒；`/skin <名字>` 直接使用
-- 正版玩家进服自动恢复自己账号的皮肤；SR 自带 GUI 已禁用，无重复功能
+- `/skins` 打开皮肤界面：顶部搜索栏、悬停条目即时 3D 预览、点击锁定/取消、一键应用或清除皮肤
+- 原版客户端 / 旧版 mod 自动回退为可点击的聊天列表（关键词搜索 + 翻页）
+- 内置 90+ 皮肤，中文界面 + 换肤冷却 5 秒；`/skin <名字>` 直接换肤
+- 正版玩家进服自动恢复自己账号的皮肤
+- 界面是随插件下发的声明式 JSON（玩家装 MineUI 0.6.6+ 即可，改界面不用重发 mod）
 - `./deploy.sh` 一键构建并部署到 Paper 服务器（MineUI + MineSkin / 配置 / 皮肤）
 
 仓库：[jurky123/mineSkin](https://github.com/jurky123/mineSkin)
@@ -62,7 +63,8 @@ git clone --recurse-submodules git@github.com:jurky123/minePlugins.git
 ```text
 minePlugins/
 ├── mineAgent/   # AI 聊天助手（Paper 插件 + 后端服务）
-├── mineSkin/    # 皮肤定制包（SkinsRestorer 配置 + 内置皮肤 + 搜索）
+├── mineChess/   # 棋类游戏插件
+├── mineSkin/    # 皮肤定制包（MineSkin 插件 + SkinsRestorer 配置 + 内置皮肤）
 ├── mineUNO/     # UNO 卡牌游戏（Paper 插件 + 资源包托管）
 └── mineUI/      # 自定义 UI 框架（Paper 插件 + Fabric 客户端模组）
 ```
