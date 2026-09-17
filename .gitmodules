@@ -10,3 +10,6 @@
 [submodule "mineSkin"]
 	path = mineSkin
 	url = git@github.com:jurky123/mineSkin.git
+[submodule "mineChess"]
+	path = mineChess
+	url = git@github.com:jurky123/mineChess.git
