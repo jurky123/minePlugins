@@ -1,0 +1,9 @@
+[submodule "mineUNO"]
+	path = mineUNO
+	url = git@github.com:jurky123/mineUNO.git
+[submodule "mineAgent"]
+	path = mineAgent
+	url = git@github.com:jurky123/mineAgent.git
+[submodule "mineUI"]
+	path = mineUI
+	url = git@github.com:jurky123/mineUI.git
