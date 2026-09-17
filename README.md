@@ -33,21 +33,23 @@ git clone --recurse-submodules git@github.com:jurky123/minePlugins.git
 
 一套服务端配 Fabric 客户端的自定义 UI 框架，突破原版 54 格箱子限制，用来承载菜单、游戏界面、HUD 等更自由的界面。
 
-- 任意布局、图片、字体、动画，ScrollView / Grid / Tabs 等常用控件
-- 服务端管状态、客户端管渲染，安全性由服务端校验保证
-- 无模组玩家自动回退到原版 Dialog 界面
-- 规划中的业务：UNO 界面、皮肤浏览器、商店、任务、排行榜、HUD
+- 任意布局与常用控件：文本/按钮/图片、滚动列表、网格、模态弹窗、输入框、Tooltip
+- 视觉与动画：圆角、描边、渐变、阴影、悬停过渡、点击/状态脉冲
+- 3D 预览：物品（含卡面模型）、生物实体、玩家（在线皮肤或任意皮肤）
+- 页面归业务插件：随界面会话下发声明式 JSON，MineUI 只负责解析、渲染与安全校验
+- 业务 API `com.mineui.api`：会话、状态、动作与 owner 生命周期；客户端 mod 可选，不支持时业务回退原版界面
+- 已被 MineSkin（皮肤浏览器）使用；规划中的业务：UNO 界面、商店、任务、排行榜、HUD
 
 仓库：[jurky123/mineUI](https://github.com/jurky123/mineUI)
 
 ### MineSkin —— 服务器皮肤定制包
 
-换肤交给 SkinsRestorer，MineSkin 插件提供中文皮肤目录与 MineUI 3D 预览界面。
+换肤交给 SkinsRestorer，MineSkin 插件用 `/skins` 统一提供皮肤浏览入口。
 
-- `/skinui` 打开皮肤浏览器：分页列表 + 可拖动 3D 预览，点一下立即换肤（mod 客户端）
-- 原版客户端自动退回聊天列表（点击 `[换]`），也可用 SkinsRestorer 的 `/skins` GUI
-- 中文界面 + 换肤冷却 5 秒；内置 90+ 皮肤：`/skin <名字>` 直接使用
-- 正版玩家进服自动恢复自己账号的皮肤
+- `/skins` 打开皮肤界面：mod 客户端是分页列表 + 可拖动 3D 预览，点一下立即换肤
+- 原版客户端自动退回可点击的聊天列表（关键词搜索 + 翻页）
+- 内置 90+ 皮肤，中文界面 + 换肤冷却 5 秒；`/skin <名字>` 直接使用
+- 正版玩家进服自动恢复自己账号的皮肤；SR 自带 GUI 已禁用，无重复功能
 - `./deploy.sh` 一键构建并部署到 Paper 服务器（MineUI + MineSkin / 配置 / 皮肤）
 
 仓库：[jurky123/mineSkin](https://github.com/jurky123/mineSkin)
