@@ -19,6 +19,20 @@ git clone --recurse-submodules git@github.com:jurky123/minePlugins.git
 
 仓库：[jurky123/mineAgent](https://github.com/jurky123/mineAgent)
 
+### MineChess —— 服务器国际象棋
+
+两个人坐在真实的 3D 棋盘两边对弈，也支持 AI 对手、观战席和可选的 2D 棋盘界面。
+
+- 完整规则：易位、吃过路兵、升变、将军/将死/逼和，50 回合 / 三次重复 / 子力不足判和，棋钟与断线重连
+- 3D 实体棋盘：实体棋子、双方座位、棋钟、上一手/选中/将军高亮与动画，**右键**打开对局面板
+- 2D 棋盘（MineUI）：固定视角鼠标点格子，两侧世界/对局聊天，升变直接在棋盘上选
+- 每桌 4 个观战席：房间、大厅「进行中对局」或 `/chess spectate <玩家>` 加入，开局后坐到棋盘两侧
+- 房间流程：大厅 / 房间列表 / 邀请 / 准备 / 切换执色 / 添加 AI，兼容 `/chess challenge` 快速开局
+- 可插拔 AI：内置随机落子，实现 `com.minechess.ai.ChessBot` 即可替换
+- 资源包由 PackHost 托管：3D 棋盘与棋子模型 + 2D 像素棋子（Lucas312，CC-BY 3.0）
+
+仓库：[jurky123/mineChess](https://github.com/jurky123/mineChess)
+
 ### MineUNO —— 服务器 UNO 卡牌游戏
 
 在服务器里玩 UNO：完整的 3D 实体牌桌与实体手牌，玩家不需要装客户端模组，配套材质包由 PackHost 自动托管分发。
@@ -43,7 +57,7 @@ git clone --recurse-submodules git@github.com:jurky123/minePlugins.git
 - 装饰素材与动效：物品/头颅、原版精灵与像素图标，悬浮缩放/换图案、按时间轮换颜色或物品
 - 页面归业务插件：随界面会话下发声明式 JSON，MineUI 只负责解析、渲染与安全校验
 - 业务 API `com.mineui.api`：会话、状态、动作与 owner 生命周期；客户端 mod 可选，不支持时业务回退原版界面
-- 已被 MineSkin（皮肤浏览器）使用；规划中的业务：UNO 界面、商店、任务、排行榜、HUD
+- 已被 MineSkin（皮肤浏览器）与 MineChess（2D 棋盘/房间/聊天）使用；规划中的业务：商店、任务、排行榜、HUD
 
 仓库：[jurky123/mineUI](https://github.com/jurky123/mineUI)
 
@@ -55,7 +69,7 @@ git clone --recurse-submodules git@github.com:jurky123/minePlugins.git
 - 原版客户端 / 旧版 mod 自动回退为可点击的聊天列表（关键词搜索 + 翻页）
 - 内置 90+ 皮肤，中文界面 + 换肤冷却 5 秒；`/skin <名字>` 直接换肤
 - 正版玩家进服自动恢复自己账号的皮肤
-- 界面是随插件下发的声明式 JSON（玩家装 MineUI 0.6.6+ 即可，改界面不用重发 mod）
+- 界面是随插件下发的声明式 JSON（玩家装 MineUI 0.7.0+ 即可，改界面不用重发 mod）
 - `./deploy.sh` 一键构建并部署到 Paper 服务器（MineUI + MineSkin / 配置 / 皮肤）
 
 仓库：[jurky123/mineSkin](https://github.com/jurky123/mineSkin)
@@ -65,7 +79,7 @@ git clone --recurse-submodules git@github.com:jurky123/minePlugins.git
 ```text
 minePlugins/
 ├── mineAgent/   # AI 聊天助手（Paper 插件 + 后端服务）
-├── mineChess/   # 棋类游戏插件
+├── mineChess/   # 国际象棋（3D 棋盘 + MineUI 2D 棋盘/观战/聊天）
 ├── mineSkin/    # 皮肤定制包（MineSkin 插件 + SkinsRestorer 配置 + 内置皮肤）
 ├── mineUNO/     # UNO 卡牌游戏（Paper 插件 + 资源包托管）
 └── mineUI/      # 自定义 UI 框架（Paper 插件 + Fabric 客户端模组）
