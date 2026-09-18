@@ -59,6 +59,7 @@ git clone --recurse-submodules git@github.com:jurky123/minePlugins.git
 - 远程图片：HTTPS 直连 + 服务端域名白名单 + 私网拦截 + 磁盘缓存，网易云封面等已验证
 - 列表与歌词：`list` 节点（条目模板 + 高亮行 + 自动居中 + 滚轮）
 - 短提示与全局动作：服务端 Toast（图标/时长），打开界面后点击可回传无会话动作
+- 键位：客户端通用键位池 + 服务端声明，改键/冲突检测走原版按键设置
 - 页面归业务插件：随界面会话下发声明式 JSON，MineUI 只负责解析、渲染与安全校验
 - 业务 API `com.mineui.api`：会话、状态、动作与 owner 生命周期；客户端 mod 可选，不支持时业务回退原版界面
 - 已被 MineSkin（皮肤浏览器）、MineChess（2D 棋盘/房间/聊天）与 MineAudio（音乐 UI）使用；规划中的业务：商店、任务、排行榜
