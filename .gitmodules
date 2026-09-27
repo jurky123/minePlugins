@@ -13,3 +13,6 @@
 [submodule "mineChess"]
 	path = mineChess
 	url = git@github.com:jurky123/mineChess.git
+[submodule "mineAudio"]
+	path = mineAudio
+	url = git@github.com:jurky123/mineAudio.git

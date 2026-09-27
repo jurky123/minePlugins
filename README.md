@@ -79,11 +79,24 @@ git clone --recurse-submodules git@github.com:jurky123/minePlugins.git
 
 仓库：[jurky123/mineSkin](https://github.com/jurky123/mineSkin)
 
+### MineAudio —— 统一音频基础设施（音乐 / 环境音 / 游戏音效）
+
+服务器级 **Audio Orchestrator**：统一管理"什么时候、给谁、在哪里、播放什么"，业务插件只依赖 `com.mineaudio.api`。
+
+- 三种来源：资源包 OGG（位置声）、原版音效、音符盒 NBS（NoteBlockAPI）；流媒体由自研客户端直连音源，服务端不代理音频流
+- 四种 Bus：MUSIC（每人一条）/ AMBIENT（多层）/ SFX / UI；范围：单玩家 / 全服 / 世界 / 区域（Cuboid、Sphere）/ 发声点
+- 点歌与搜索：网易搜索、全服统一队列（自动续播）、客户端本地曲库（M2 进行中）
+- MineUI 音乐界面：`/mineaudio ui` 查看/控制播放，`/mineaudio hud` 切换"正在播放" HUD；未装客户端时自动降级
+- 事件与能力查询、Fallback 机制（资源包/NoteBlockAPI 缺失只影响对应 Backend）
+
+仓库：[jurky123/mineAudio](https://github.com/jurky123/mineAudio)
+
 ## 目录
 
 ```text
 minePlugins/
 ├── mineAgent/   # AI 聊天助手（Paper 插件 + 后端服务）
+├── mineAudio/   # 统一音频基础设施（资源包/NBS/流媒体 + 业务 API）
 ├── mineChess/   # 国际象棋（3D 棋盘 + MineUI 2D 棋盘/观战/聊天）
 ├── mineSkin/    # 皮肤定制包（MineSkin 插件 + SkinsRestorer 配置 + 内置皮肤）
 ├── mineUNO/     # UNO 卡牌游戏（Paper 插件 + 资源包托管）
