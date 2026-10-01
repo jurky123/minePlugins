@@ -16,3 +16,6 @@
 [submodule "mineAudio"]
 	path = mineAudio
 	url = git@github.com:jurky123/mineAudio.git
+[submodule "mineDisplay"]
+	path = mineDisplay
+	url = https://github.com/jurky123/mineDisplay.git

@@ -91,12 +91,24 @@ git clone --recurse-submodules git@github.com:jurky123/minePlugins.git
 
 仓库：[jurky123/mineAudio](https://github.com/jurky123/mineAudio)
 
+### MineDisplay —— 图片与视频展示（规划中）
+
+计划提供世界中的图片画框、公告墙与视频屏幕，以及类似侧边计分板的图片 HUD。
+
+- 首期原版地图拼图，无需 mod 或资源包；后续复用 MineUI 图片 HUD 与管理页
+- 可选 Fabric 客户端负责高清世界纹理和同步视频；原版视频默认降级为封面
+- MineAudio / PackHost 按现有业务 API 或部署流程可选集成；跨项目 API 扩展仅记录需求
+- 当前仅有设计文档，尚无可运行插件或客户端
+
+仓库：[jurky123/mineDisplay](https://github.com/jurky123/mineDisplay) · [设计](mineDisplay/docs/DESIGN.md) · [实施计划](mineDisplay/docs/PLAN.md)
+
 ## 目录
 
 ```text
 minePlugins/
 ├── mineAgent/   # AI 聊天助手（Paper 插件 + 后端服务）
 ├── mineAudio/   # 统一音频基础设施（资源包/NBS/流媒体 + 业务 API）
+├── mineDisplay/ # 图片/视频展示（规划：Paper + 可选 Fabric，复用 MineUI）
 ├── mineChess/   # 国际象棋（3D 棋盘 + MineUI 2D 棋盘/观战/聊天）
 ├── mineSkin/    # 皮肤定制包（MineSkin 插件 + SkinsRestorer 配置 + 内置皮肤）
 ├── mineUNO/     # UNO 卡牌游戏（Paper 插件 + 资源包托管）
