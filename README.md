@@ -102,6 +102,14 @@ git clone --recurse-submodules git@github.com:jurky123/minePlugins.git
 
 仓库：[jurky123/mineDisplay](https://github.com/jurky123/mineDisplay) · [设计](mineDisplay/docs/DESIGN.md) · [实施计划](mineDisplay/docs/PLAN.md)
 
+### MineRenderer / VoxelLight —— Vulkan 客户端路径追踪
+
+Minecraft 26.2 / Java 25 / Fabric 客户端渲染器。alpha.41 支持 RT 成功后接管原版世界绘制、Vulkan 原生 DLSS RR Performance、实时透明阴影单次遍历与 iterative indirect A/B。Reference 保留精确输运；GPU 性能和 RR 画质仍待实机验收。
+
+- 构建：`cd mineRenderer && ./gradlew build clientKit`
+- 验收：`/voxellight rt_reconstruction dlss`、`/voxellight rt_benchmark frame`；导出世界总 GPU 时间与客户端墙钟耗时。
+- [实施、依赖与限制](https://github.com/jurky123/mineRenderer/blob/main/docs/performance/CAUSTICA-FRAME-PIPELINE.md)；仓库：[jurky123/mineRenderer](https://github.com/jurky123/mineRenderer)
+
 ## 目录
 
 ```text
