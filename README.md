@@ -104,7 +104,7 @@ git clone --recurse-submodules git@github.com:jurky123/minePlugins.git
 
 ### MineRenderer / VoxelLight —— Vulkan 客户端路径追踪
 
-Minecraft 26.2 / Java 25 / Fabric 客户端渲染器。alpha.41 支持 RT 成功后接管原版世界绘制、Vulkan 原生 DLSS RR Performance、实时透明阴影单次遍历与 iterative indirect A/B。Reference 保留精确输运；GPU 性能和 RR 画质仍待实机验收。
+Minecraft 26.2 / Java 25 / Fabric 客户端渲染器。alpha.42 修正 RT 世界接管调用与实际状态验收，支持 RT 成功后接管原版世界绘制、Vulkan 原生 DLSS RR Performance、实时透明阴影单次遍历与 iterative indirect A/B。Reference 保留精确输运；实测 FAST / Iterative 更慢，默认 EXACT / Wavefront。GPU 接管与 RR 画质仍待实机验收。
 
 - 构建：`cd mineRenderer && ./gradlew build clientKit`
 - 验收：`/voxellight rt_reconstruction dlss`、`/voxellight rt_benchmark frame`；导出世界总 GPU 时间与客户端墙钟耗时。
