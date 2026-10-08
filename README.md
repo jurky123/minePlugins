@@ -107,6 +107,7 @@ git clone --recurse-submodules git@github.com:jurky123/minePlugins.git
 Minecraft 26.2 / Java 25 / Fabric 客户端渲染器。alpha.45 修复默认 ROUGH_DIFFUSE 缓存覆盖：分离 diffuse/specular、B0/B1/B2 diffuse cache、精确镜面 continuation 与对应 PDF/MIS、diffuse history、间接训练请求和 generation 槽位回收。alpha.42 已实测 Vulkan 世界接管与 DLSS RR 运行，当前场景 FAST 输运耗时降低 23.01%，Iterative 增加 32.76%；默认保留 EXACT / Wavefront，FAST 按场景选择。alpha.44 专项三组均为波动内；alpha.44 默认 ROUGH_DIFFUSE 入口排除导致零查询/训练；alpha.45 修复已进入数值门禁，RTX 画质/生产性能仍待验收。[验收分析](https://github.com/jurky123/mineRenderer/blob/main/docs/performance/ALPHA-44-MATERIAL-ANALYSIS.md)。
 
 - alpha.45 首份 production FULL 基线 4 段有效；GPU world P50 约 13.53–13.60 ms，缓存对照/画质仍待验收。[基线分析](https://github.com/jurky123/mineRenderer/blob/main/docs/performance/ALPHA-45-PRODUCTION-BASELINE.md)。
+- alpha.46 修正首个 GPU 样本等待与稳定性超时混淆、断线取消原因；358 项测试通过。缓存性能退化及首次执行长停顿根因仍待 RTX 定位。[修复记录](https://github.com/jurky123/mineRenderer/blob/main/docs/performance/ALPHA-46-BENCHMARK-FIXES.md)。
 - 构建：`cd mineRenderer && ./gradlew build clientKit`
 - 验收：`/voxellight rt_reconstruction dlss`、`/voxellight rt_benchmark material`（专项 A/B）、`/voxellight rt_benchmark production`（保留日常配置，长期记录帧 P50/P95、CPU/GPU/内存）。
 - [Material-Aware Cache 2.1、实现与验收](https://github.com/jurky123/mineRenderer/blob/main/docs/performance/MATERIAL-AWARE-CACHE-21.md)；[Primary / Cache 2.0、已实现项与限制](https://github.com/jurky123/mineRenderer/blob/main/docs/performance/PRIMARY-CACHE-2.md)；默认仍 MONOLITHIC/TAIL/OWEN/EXACT/Wavefront，新算法与复杂 DLSS motion 待 RTX 画质/性能验收。
