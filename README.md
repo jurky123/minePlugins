@@ -108,6 +108,7 @@ Minecraft 26.2 / Java 25 / Fabric 客户端渲染器。alpha.45 修复默认 ROU
 
 - alpha.45 首份 production FULL 基线 4 段有效；GPU world P50 约 13.53–13.60 ms，缓存对照/画质仍待验收。[基线分析](https://github.com/jurky123/mineRenderer/blob/main/docs/performance/ALPHA-45-PRODUCTION-BASELINE.md)。
 - alpha.46 修正首个 GPU 样本等待与稳定性超时混淆、断线取消原因；358 项测试通过。缓存性能退化及首次执行长停顿根因仍待 RTX 定位。[修复记录](https://github.com/jurky123/mineRenderer/blob/main/docs/performance/ALPHA-46-BENCHMARK-FIXES.md)。
+- alpha.46 Material 24 段全部有效，PRIMARY 对 TAIL transport 改善 8.62%，FULL Split 退化 7.07%；缓存覆盖与路径减少已确认，生产 FULL 配对/画质仍待验收。[实测分析](https://github.com/jurky123/mineRenderer/blob/main/docs/performance/ALPHA-46-MATERIAL-ANALYSIS.md)。
 - 构建：`cd mineRenderer && ./gradlew build clientKit`
 - 验收：`/voxellight rt_reconstruction dlss`、`/voxellight rt_benchmark material`（专项 A/B）、`/voxellight rt_benchmark production`（保留日常配置，长期记录帧 P50/P95、CPU/GPU/内存）。
 - [Material-Aware Cache 2.1、实现与验收](https://github.com/jurky123/mineRenderer/blob/main/docs/performance/MATERIAL-AWARE-CACHE-21.md)；[Primary / Cache 2.0、已实现项与限制](https://github.com/jurky123/mineRenderer/blob/main/docs/performance/PRIMARY-CACHE-2.md)；默认仍 MONOLITHIC/TAIL/OWEN/EXACT/Wavefront，新算法与复杂 DLSS motion 待 RTX 画质/性能验收。
