@@ -106,6 +106,7 @@ git clone --recurse-submodules git@github.com:jurky123/minePlugins.git
 
 Minecraft 26.2 / Java 25 / Fabric 客户端渲染器。alpha.45 修复默认 ROUGH_DIFFUSE 缓存覆盖：分离 diffuse/specular、B0/B1/B2 diffuse cache、精确镜面 continuation 与对应 PDF/MIS、diffuse history、间接训练请求和 generation 槽位回收。alpha.42 已实测 Vulkan 世界接管与 DLSS RR 运行，当前场景 FAST 输运耗时降低 23.01%，Iterative 增加 32.76%；默认保留 EXACT / Wavefront，FAST 按场景选择。alpha.44 专项三组均为波动内；alpha.44 默认 ROUGH_DIFFUSE 入口排除导致零查询/训练；alpha.45 修复已进入数值门禁，RTX 画质/生产性能仍待验收。[验收分析](https://github.com/jurky123/mineRenderer/blob/main/docs/performance/ALPHA-44-MATERIAL-ANALYSIS.md)。
 
+- alpha.47 加入持久资产预积分 rough diffuse kernel、Primary 已验证分类/guide 复用与 `rt_benchmark cost` 配对 ABBA；363 项测试及原生数值回归通过（256 组最大误差 0.406%）。默认仍 FULL/MONOLITHIC，RTX 帧时间、画质和长停顿待验收。[安装包](https://temp.sh/ouqkP/voxellight-client-kit-26.2-0.39.0-alpha.47.zip) · [实现与验收](https://github.com/jurky123/mineRenderer/blob/main/docs/performance/CACHE-COST-REDUCTION.md)。
 - alpha.45 首份 production FULL 基线 4 段有效；GPU world P50 约 13.53–13.60 ms，缓存对照/画质仍待验收。[基线分析](https://github.com/jurky123/mineRenderer/blob/main/docs/performance/ALPHA-45-PRODUCTION-BASELINE.md)。
 - alpha.46 修正首个 GPU 样本等待与稳定性超时混淆、断线取消原因；358 项测试通过。缓存性能退化及首次执行长停顿根因仍待 RTX 定位。[修复记录](https://github.com/jurky123/mineRenderer/blob/main/docs/performance/ALPHA-46-BENCHMARK-FIXES.md)。
 - alpha.46 Material 24 段全部有效，PRIMARY 对 TAIL transport 改善 8.62%，FULL Split 退化 7.07%；缓存覆盖与路径减少已确认，生产 FULL 配对/画质仍待验收。[实测分析](https://github.com/jurky123/mineRenderer/blob/main/docs/performance/ALPHA-46-MATERIAL-ANALYSIS.md)。
