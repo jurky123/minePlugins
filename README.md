@@ -104,7 +104,7 @@ git clone --recurse-submodules git@github.com:jurky123/minePlugins.git
 
 ### MineRenderer / VoxelLight —— Vulkan 客户端路径追踪
 
-Minecraft 26.2 / Java 25 / Fabric 客户端渲染器。alpha.44 增加 shadow 快速材质读取、local alias PMF 复用、Primary Split/B0 diffuse cache、紧凑训练请求与动态几何复用。alpha.42 已实测 Vulkan 世界接管与 DLSS RR 运行，当前场景 FAST 输运耗时降低 23.01%，Iterative 增加 32.76%；默认保留 EXACT / Wavefront，FAST 按场景选择。新版提速待同场景 RTX 验收。
+Minecraft 26.2 / Java 25 / Fabric 客户端渲染器。alpha.44 增加 shadow 快速材质读取、local alias PMF 复用、Primary Split/B0 diffuse cache、紧凑训练请求与动态几何复用。alpha.42 已实测 Vulkan 世界接管与 DLSS RR 运行，当前场景 FAST 输运耗时降低 23.01%，Iterative 增加 32.76%；默认保留 EXACT / Wavefront，FAST 按场景选择。alpha.44 专项三组均为波动内；默认 ROUGH_DIFFUSE 被 cache/history 入口排除，零查询/训练，缓存覆盖未验收。[验收分析](https://github.com/jurky123/mineRenderer/blob/main/docs/performance/ALPHA-44-MATERIAL-ANALYSIS.md)。
 
 - 构建：`cd mineRenderer && ./gradlew build clientKit`
 - 验收：`/voxellight rt_reconstruction dlss`、`/voxellight rt_benchmark material`（专项 A/B）、`/voxellight rt_benchmark production`（保留日常配置，长期记录帧 P50/P95、CPU/GPU/内存）。
