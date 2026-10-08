@@ -104,10 +104,11 @@ git clone --recurse-submodules git@github.com:jurky123/minePlugins.git
 
 ### MineRenderer / VoxelLight —— Vulkan 客户端路径追踪
 
-Minecraft 26.2 / Java 25 / Fabric 客户端渲染器。alpha.43 减少非发光 MIS 查询、发光采样完整材质解码、动态提交驻留表和 TLAS 排序。alpha.42 已实测 Vulkan 世界接管与 DLSS RR 运行，当前场景 FAST 输运耗时降低 23.01%，Iterative 增加 32.76%；默认保留 EXACT / Wavefront，FAST 按场景选择。新版提速待同场景 RTX 验收。
+Minecraft 26.2 / Java 25 / Fabric 客户端渲染器。alpha.44 增加 shadow 快速材质读取、local alias PMF 复用、Primary Split/B0 diffuse cache、紧凑训练请求与动态几何复用。alpha.42 已实测 Vulkan 世界接管与 DLSS RR 运行，当前场景 FAST 输运耗时降低 23.01%，Iterative 增加 32.76%；默认保留 EXACT / Wavefront，FAST 按场景选择。新版提速待同场景 RTX 验收。
 
 - 构建：`cd mineRenderer && ./gradlew build clientKit`
-- 验收：`/voxellight rt_reconstruction dlss`、`/voxellight rt_benchmark frame`；导出世界总 GPU 时间与客户端墙钟耗时。
+- 验收：`/voxellight rt_reconstruction dlss`、`/voxellight rt_benchmark material`（专项 A/B）、`/voxellight rt_benchmark production`（保留日常配置，长期记录帧 P50/P95、CPU/GPU/内存）。
+- [Primary / Cache 2.0、已实现项与限制](https://github.com/jurky123/mineRenderer/blob/main/docs/performance/PRIMARY-CACHE-2.md)；默认仍 MONOLITHIC/TAIL/OWEN/EXACT/Wavefront，新算法与复杂 DLSS motion 待 RTX 画质/性能验收。
 - [实施、依赖与限制](https://github.com/jurky123/mineRenderer/blob/main/docs/performance/CAUSTICA-FRAME-PIPELINE.md)；仓库：[jurky123/mineRenderer](https://github.com/jurky123/mineRenderer)
 
 ## 目录
