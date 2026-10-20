@@ -17,7 +17,9 @@ git clone --recurse-submodules git@github.com:jurky123/minePlugins.git
 - 帮忙传送玩家、给物品、执行服务器命令——需要管理员点 **[批准]** 才会执行，且以请求者本人权限为准
 - 所有操作有记录，可追溯
 - 游戏内 UI（Paper 插件 0.3.0）：`/agent` 直接打开原版提问、查询、回复记录和审批面板；`/agent ui` 可选 MineUI 增强，无需专用 mod
-- 可选 AI 玩家身体 V1：独立 Node 执行 12 个 `body_*` 工具，网页与游戏面板管理员控制、私密任务、审批与急停（游戏会话须网页确认短期授权）；默认关闭，已完成隔离测试，尚未启用生产；见 [body 使用说明](mineAgent/body/README.md)
+- 可选 AI 玩家身体 V1：独立 Node 执行 12 个 `body_*` 工具，网页与游戏面板管理员控制、私密任务、审批与急停（游戏会话须网页确认短期授权）；配置默认关闭；2026-10-20 已经服主授权启用生产试运行，活动区域不设限制；见 [body 使用说明](mineAgent/body/README.md)
+
+- AI 玩家内容门户：正式主站 `/ai` 已接入，独立内容服务/数据库与管理员认证；实时资料已接通，自动写作工具与 SSO 尚未接入。
 
 仓库：[jurky123/mineAgent](https://github.com/jurky123/mineAgent)
 
