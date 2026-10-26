@@ -65,6 +65,8 @@ git clone --recurse-submodules git@github.com:jurky123/minePlugins.git
 - 装饰素材与动效：物品/头颅、原版精灵与像素图标，悬浮缩放/换图案、按时间轮换颜色或物品
 - 远程图片：HTTPS 直连 + 服务端域名白名单 + 私网拦截 + 磁盘缓存，网易云封面等已验证
 - 列表与歌词：`list` 节点（条目模板 + 高亮行 + 自动居中 + 滚轮）
+- 聊天式界面（0.17）：`text.wrap` 多行消息、`row/column` 的 `grow` 两栏布局、`list.stickToBottom`
+  增量复用/跟随底部、`button.submit` 提交输入框、`input.enabled` 禁用态；`/mineui chat` 演示
 - 短提示与全局动作：服务端 Toast（图标/时长），打开界面后点击可回传无会话动作
 - 键位：客户端通用键位池 + 服务端声明，改键/冲突检测走原版按键设置
 - 页面归业务插件：随界面会话下发声明式 JSON，MineUI 只负责解析、渲染与安全校验
@@ -143,6 +145,12 @@ minePlugins/
 - 汇总仓库只记录各插件的版本指针；插件更新后，在本仓库执行
   `git submodule update --remote` 即可同步到最新版本并提交
 - 只想拉取某个插件：`git clone git@github.com:jurky123/<插件名>.git`
+
+## 2026-10-26 MineUI 0.17.0
+
+- MineUI 0.17.0：聊天式界面能力（`text.wrap/maxLines/lineHeight`、`row/column` 的 `grow`、
+  `list.stickToBottom` 增量复用、`button.submit`、`input.enabled`、本地 `mineui:scroll_bottom/top`）；
+  能力位 `chat_ui_v1`；`/mineui chat` 演示。客户端须更新 mod 0.17.0，业务侧用 `supportsChatUi` 门禁。
 
 ## 2026-10-01 审查修复
 
